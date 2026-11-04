@@ -1,8 +1,9 @@
 --[[ 
-    Steal a Brainrot | SAB Mutation Lab (Official Strict Edition)
-    - Las 16 mutaciones reales y oficiales del juego (4 Permanentes + 12 de Eventos / Admin Abuse).
-    - Detector de eventos, predicción de spawns, Claim sincronizado y análisis de la bruja.
-    - Código totalmente limpio, sin parpadeos de UI y con persistencia real.
+    Steal a Brainrot | SAB Mutation Lab v3 (Server Inspector + Pasarela + Bruja)
+    - Separacion real entre Pasarela (Red Carpet) y Maquina de la Bruja / Haunted Fuse.
+    - Cronometro al segundo exacto del proximo spawn en Pasarela + ETA por cada mutacion.
+    - Inspector de ReplicatedStorage, Workspace Attributes, Lighting y Reloj Horario UTC.
+    - Lectura del temporizador real (BillboardGui) de la Bruja y deteccion de resultados en Base + Backpack.
 ]]
 
 if _G.SAB_MutationLab then
@@ -12,38 +13,39 @@ if _G.SAB_MutationLab then
 end
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
 local lp = Players.LocalPlayer
 
 -- =========================================
--- TABLA OFICIAL ESTRICTA DE LAS 16 MUTACIONES
+-- 1. LAS 16 MUTACIONES OFICIALES (WIKI NOV 2026)
 -- =========================================
 
-local MUT = {
-    -- Permanentes (salen siempre)
-    ["default"]     = 1,
-    ["gold"]        = 1.25,
-    ["diamond"]     = 1.5,
-    ["rainbow"]     = 10,
+local MUT_DATA = {
+    -- Permanentes (Red Carpet)
+    ["default"]     = { mult = 1.00, permanent = true,  color = Color3.fromRGB(180, 180, 190) },
+    ["gold"]        = { mult = 1.25, permanent = true,  color = Color3.fromRGB(255, 215, 80)  },
+    ["diamond"]     = { mult = 1.50, permanent = true,  color = Color3.fromRGB(110, 225, 255) },
+    ["rainbow"]     = { mult = 10.0, permanent = true,  color = Color3.fromRGB(255, 130, 240) },
 
-    -- De Eventos / Admin Abuse (salen esporádicamente)
-    ["bloodrot"]    = 2,
-    ["candy"]       = 4,
-    ["lava"]        = 6,
-    ["galaxy"]      = 7,
-    ["yin yang"]    = 7.5,
-    ["yinyang"]     = 7.5,
-    ["radioactive"] = 8.5,
-    ["cursed"]      = 9,
-    ["divine"]      = 10,
-    ["cyber"]       = 11,
-    ["phantom"]     = 12,
-    ["crystal"]     = 13,
-    ["eclipse"]     = 14,
+    -- De Eventos / Admin Abuse / Fuse Machines
+    ["bloodrot"]    = { mult = 2.00, permanent = false, color = Color3.fromRGB(220, 60, 60)   },
+    ["candy"]       = { mult = 4.00, permanent = false, color = Color3.fromRGB(255, 150, 210) },
+    ["lava"]        = { mult = 6.00, permanent = false, color = Color3.fromRGB(255, 110, 40)  },
+    ["galaxy"]      = { mult = 7.00, permanent = false, color = Color3.fromRGB(170, 110, 255) },
+    ["yin yang"]    = { mult = 7.50, permanent = false, color = Color3.fromRGB(240, 240, 255) },
+    ["yinyang"]     = { mult = 7.50, permanent = false, color = Color3.fromRGB(240, 240, 255) },
+    ["radioactive"] = { mult = 8.50, permanent = false, color = Color3.fromRGB(110, 255, 90)  },
+    ["cursed"]      = { mult = 9.00, permanent = false, color = Color3.fromRGB(200, 40, 80)   },
+    ["divine"]      = { mult = 10.0, permanent = false, color = Color3.fromRGB(255, 245, 150) },
+    ["cyber"]       = { mult = 11.0, permanent = false, color = Color3.fromRGB(60, 200, 255)  },
+    ["phantom"]     = { mult = 12.0, permanent = false, color = Color3.fromRGB(160, 170, 195) },
+    ["crystal"]     = { mult = 13.0, permanent = false, color = Color3.fromRGB(180, 245, 255) },
+    ["eclipse"]     = { mult = 14.0, permanent = false, color = Color3.fromRGB(255, 95, 50)   },
 }
 
--- Ordenar claves de mayor a menor longitud para evitar cruces (ej. "yin yang" antes de "yin")
 local MUT_KEYS = {}
-for k in pairs(MUT) do
+for k in pairs(MUT_DATA) do
     MUT_KEYS[#MUT_KEYS + 1] = k
 end
 table.sort(MUT_KEYS, function(a, b)
@@ -53,58 +55,86 @@ end)
 local CFG = {
     autoClaim = false,
     tpOnClaim = true,
-    leadTime = 0.35,
-    window = 1.4,
-    scanDelay = 0.4,
-    gap = 8.0,
-    minSamples = 3,
-    claimCooldown = 0.8,
+    leadTime = 0.25,
+    scanDelay = 0.25,
+    minSamples = 2,
+    claimCooldown = 0.6,
 }
+
+-- =========================================
+-- 2. ESTADO INTERNO (PASARELA, SERVIDOR Y BRUJA)
+-- =========================================
 
 local buyPrompts = setmetatable({}, {__mode = "k"})
 local claimPrompts = setmetatable({}, {__mode = "k"})
 local watchedPrompts = setmetatable({}, {__mode = "k"})
+local seenSpawnModels = setmetatable({}, {__mode = "k"})
 local connections = {}
 
-local track = {}
-local claimLog = {}
-local buckets = {}
+-- Pasarela: seguimiento exacto de cada unidad y cada mutacion
+local runway = {
+    totalSpawns = 0,
+    lastGlobalSpawnAt = nil,
+    spawnIntervals = {},      -- Intervalos en segundos entre cada Brainrot que sale en la pasarela
+    lastBrainrotName = "Ninguno",
+    lastMutation = "default",
+    mutations = {},           -- [mutKey] = { count, lastSpawnAt, intervals = {}, activeNow = 0 }
+}
 
-local lastClaimFire = 0
-local activeEvent = nil
-local predictedEvent = nil
-local activeEta = nil
-local activeConf = 0
+for k in pairs(MUT_DATA) do
+    if k ~= "yinyang" then
+        runway.mutations[k] = {
+            count = 0,
+            lastSpawnAt = nil,
+            intervals = {},
+            activeNow = 0,
+        }
+    end
+end
 
+-- Estado real del servidor (Eventos / Reloj UTC / Clima)
+local serverState = {
+    activeEvents = {},
+    serverLuck = nil,
+    nextHalfHourSec = 0,      -- Ventanas de 30m (ej. Crystal Event)
+    nextHourSec = 0,          -- Ventanas de 60m (ej. Cyber / Galaxy / Skeleton)
+    remoteSignals = {},
+}
+
+-- Estado de la Bruja / Haunted Fuse
 local witch = {
     readyAt = nil,
     intervals = {},
     enabled = false,
     closestDist = nil,
     promptCount = 0,
+    machineCountdown = nil,   -- Segundos reales leidos del BillboardGui de la maquina
+    machineText = "",
 }
 
-local labAlive = true
+local claimLog = {}
+local delayBuckets = {}       -- Agrupacion por delay tras estar lista (+0.25s)
+local secondBuckets = {}      -- Agrupacion por segundo del minuto del servidor (0-59s)
+local lastClaimFire = 0
 local pendingClaim = nil
+local labAlive = true
 
 -- =========================================
--- UTILIDADES MATEMATICAS Y DE TIEMPO
+-- 3. FUNCIONES MATEMATICAS Y TIEMPO DEL SERVIDOR
 -- =========================================
 
 local function now()
     local ok, t = pcall(function()
         return workspace:GetServerTimeNow()
     end)
-    if ok and type(t) == "number" then
+    if ok and type(t) == "number" and t > 0 then
         return t
     end
     return os.clock()
 end
 
 local function median(t)
-    if #t == 0 then
-        return nil
-    end
+    if #t == 0 then return nil end
     local c = table.clone(t)
     table.sort(c)
     local n = #c
@@ -115,9 +145,7 @@ local function median(t)
 end
 
 local function mad(t, m)
-    if #t == 0 or not m then
-        return nil
-    end
+    if #t == 0 or not m then return nil end
     local d = {}
     for _, v in ipairs(t) do
         d[#d + 1] = math.abs(v - m)
@@ -125,136 +153,214 @@ local function mad(t, m)
     return median(d)
 end
 
-local function fmt(s)
-    if not s then
-        return "--:--"
-    end
-    if s < 0 then
-        return "00:00"
-    end
+local function fmtTime(s)
+    if not s then return "--:--" end
+    if s <= 0 then return "00:00" end
     local mins = math.floor(s / 60)
     local secs = math.floor(s % 60)
     return string.format("%02d:%02d", mins, secs)
 end
 
+local function fmtPrecise(s)
+    if not s then return "--.-s" end
+    if s <= 0 then return "0.0s" end
+    if s >= 60 then
+        return fmtTime(s)
+    end
+    return string.format("%.1fs", s)
+end
+
 -- =========================================
--- IDENTIFICACION DE OBJETOS Y MUTACIONES
+-- 4. LECTOR DE ATRIBUTOS, MODELOS Y MUTACIONES
 -- =========================================
 
 local GENERIC = {
     part = true, model = true, stand = true, pedestal = true, base = true,
     prompt = true, proximityprompt = true, buy = true, spawn = true,
-    hitbox = true, folder = true, model2 = true, workspace = true,
-    proximitypromptpart = true, witch = true, machine = true,
+    hitbox = true, folder = true, workspace = true, proximitypromptpart = true,
+    witch = true, machine = true, cauldron = true, fuse = true, humanoidrootpart = true,
 }
 
 local ATTR_PRIORITY = {
-    "Mutation", "Mutations", "Trait", "Rarity",
+    "Mutation", "Mutations", "Mut", "Variant", "Rarity", "Trait",
     "BrainrotName", "DisplayName", "ItemName", "UnitName", "PetName",
 }
 
 local function cleanName(v)
-    if type(v) ~= "string" then
-        return nil
-    end
+    if type(v) ~= "string" then return nil end
     v = v:match("^%s*(.-)%s*$")
-    if #v < 2 or #v > 64 then
-        return nil
-    end
+    if #v < 2 or #v > 64 then return nil end
     local lower = v:lower()
-    if GENERIC[lower] then
-        return nil
-    end
+    if GENERIC[lower] then return nil end
     if lower == "buy" or lower == "purchase" or lower == "comprar" or lower == "claim" then
         return nil
     end
-    if v:match("^%$?[%d%.,]+$") then
+    if v:match("^%$?[%d%.,]+[kKmMbBtT]?/?s?$") then
         return nil
     end
     return v
 end
 
+local function normalizeMutKey(k)
+    if k == "yinyang" then return "yin yang" end
+    return k
+end
+
+local function mutationOf(text)
+    if not text or text == "" then return nil end
+    local l = text:lower()
+    for _, k in ipairs(MUT_KEYS) do
+        if l:find(k, 1, true) then
+            return normalizeMutKey(k)
+        end
+    end
+    return nil
+end
+
+local function getRootModel(inst)
+    local curr = inst
+    local lastModel = nil
+    for _ = 1, 8 do
+        if not curr or curr == workspace then break end
+        if curr:IsA("Model") and not GENERIC[curr.Name:lower()] then
+            lastModel = curr
+        end
+        curr = curr.Parent
+    end
+    return lastModel or (inst and inst.Parent)
+end
+
 local function getPromptPosition(prompt)
     local node = prompt and prompt.Parent
     for _ = 1, 8 do
-        if not node then
-            break
-        end
-        if node:IsA("Attachment") then
-            return node.WorldPosition
-        end
-        if node:IsA("BasePart") then
-            return node.Position
-        end
+        if not node then break end
+        if node:IsA("Attachment") then return node.WorldPosition end
+        if node:IsA("BasePart") then return node.Position end
         if node:IsA("Model") then
-            local ok, pivot = pcall(function()
-                return node:GetPivot().Position
-            end)
-            if ok and pivot then
-                return pivot
-            end
+            local ok, pivot = pcall(function() return node:GetPivot().Position end)
+            if ok and pivot then return pivot end
         end
         node = node.Parent
     end
     return nil
 end
 
+-- Extrae texto de atributos, nombres y BillboardGui (etiquetas flotantes sobre el Brainrot)
 local function extractFullDescriptor(instanceOrPrompt)
     local parts = {}
     local node = instanceOrPrompt
 
     if instanceOrPrompt:IsA("ProximityPrompt") then
-        if instanceOrPrompt.ObjectText ~= "" then
-            parts[#parts + 1] = instanceOrPrompt.ObjectText
-        end
-        if instanceOrPrompt.ActionText ~= "" then
-            parts[#parts + 1] = instanceOrPrompt.ActionText
-        end
+        if instanceOrPrompt.ObjectText ~= "" then parts[#parts + 1] = instanceOrPrompt.ObjectText end
+        if instanceOrPrompt.ActionText ~= "" then parts[#parts + 1] = instanceOrPrompt.ActionText end
         node = instanceOrPrompt.Parent
     elseif instanceOrPrompt:IsA("Tool") then
         parts[#parts + 1] = instanceOrPrompt.Name
-        if instanceOrPrompt.ToolTip ~= "" then
-            parts[#parts + 1] = instanceOrPrompt.ToolTip
-        end
+        if instanceOrPrompt.ToolTip ~= "" then parts[#parts + 1] = instanceOrPrompt.ToolTip end
     end
 
-    for _ = 1, 8 do
-        if not node or node == workspace then
-            break
-        end
+    local rootModel = getRootModel(node)
+
+    for _ = 1, 7 do
+        if not node or node == workspace then break end
         for _, attr in ipairs(ATTR_PRIORITY) do
-            local val = cleanName(node:GetAttribute(attr))
-            if val then
+            local val = node:GetAttribute(attr)
+            if type(val) == "string" and #val > 0 then
                 parts[#parts + 1] = val
             end
         end
-        for _, val in pairs(node:GetAttributes()) do
-            local cleaned = cleanName(val)
-            if cleaned then
-                parts[#parts + 1] = cleaned
+        for k, val in pairs(node:GetAttributes()) do
+            if type(val) == "string" and #val > 1 then
+                parts[#parts + 1] = val
+            elseif val == true and MUT_DATA[k:lower()] then
+                parts[#parts + 1] = k
             end
         end
         local cName = cleanName(node.Name)
-        if cName then
-            parts[#parts + 1] = cName
-        end
+        if cName then parts[#parts + 1] = cName end
         node = node.Parent
     end
 
-    return table.concat(parts, " ")
-end
-
-local function mutationOf(text)
-    if not text or text == "" then
-        return nil
-    end
-    local l = text:lower()
-    for _, k in ipairs(MUT_KEYS) do
-        if l:find(k, 1, true) then
-            return k
+    -- Leer textos de BillboardGui o SurfaceGui dentro del modelo del Brainrot
+    if rootModel then
+        for _, desc in ipairs(rootModel:GetDescendants()) do
+            if desc:IsA("TextLabel") and desc.Text ~= "" and #desc.Text < 50 then
+                parts[#parts + 1] = desc.Text
+            end
         end
     end
-    return nil
+
+    return table.concat(parts, " "), rootModel
+end
+
+local function extractCleanBrainrotName(promptOrModel)
+    local node = promptOrModel:IsA("ProximityPrompt") and promptOrModel.Parent or promptOrModel
+    for _ = 1, 7 do
+        if not node or node == workspace then break end
+        for _, attr in ipairs({"BrainrotName", "DisplayName", "ItemName", "UnitName"}) do
+            local v = cleanName(node:GetAttribute(attr))
+            if v then return v end
+        end
+        if node:IsA("Model") then
+            local v = cleanName(node.Name)
+            if v then return v end
+        end
+        node = node.Parent
+    end
+    if promptOrModel:IsA("ProximityPrompt") then
+        return cleanName(promptOrModel.ObjectText) or "Brainrot"
+    end
+    return cleanName(promptOrModel.Name) or "Brainrot"
+end
+
+-- =========================================
+-- 5. REGISTRO DE SPAWNS EN PASARELA Y PROMPTS
+-- =========================================
+
+local function recordRunwaySpawn(prompt)
+    if not prompt or not prompt.Parent then return end
+    local desc, rootModel = extractFullDescriptor(prompt)
+    local keyObj = rootModel or prompt
+
+    if seenSpawnModels[keyObj] then
+        return
+    end
+    seenSpawnModels[keyObj] = true
+
+    local t = now()
+    local mut = mutationOf(desc) or "default"
+    local bName = extractCleanBrainrotName(prompt)
+
+    -- 1. Intervalo global de aparicion en la pasarela
+    if runway.lastGlobalSpawnAt then
+        local dt = t - runway.lastGlobalSpawnAt
+        if dt >= 0.8 and dt <= 60 then
+            table.insert(runway.spawnIntervals, dt)
+            while #runway.spawnIntervals > 35 do
+                table.remove(runway.spawnIntervals, 1)
+            end
+        end
+    end
+    runway.lastGlobalSpawnAt = t
+    runway.totalSpawns = runway.totalSpawns + 1
+    runway.lastBrainrotName = bName
+    runway.lastMutation = mut
+
+    -- 2. Intervalo especifico de esa mutacion en la pasarela
+    local mTrack = runway.mutations[mut]
+    if mTrack then
+        if mTrack.lastSpawnAt then
+            local mDt = t - mTrack.lastSpawnAt
+            if mDt >= 1.0 and mDt <= 3600 then
+                table.insert(mTrack.intervals, mDt)
+                while #mTrack.intervals > 30 do
+                    table.remove(mTrack.intervals, 1)
+                end
+            end
+        end
+        mTrack.lastSpawnAt = t
+        mTrack.count = mTrack.count + 1
+    end
 end
 
 local function classifyPrompt(p)
@@ -269,8 +375,8 @@ local function classifyPrompt(p)
         or full:find("witch", 1, true)
         or full:find("bruja", 1, true)
         or full:find("cauldron", 1, true)
-        or full:find("craft", 1, true)
-        or full:find("collect", 1, true) then
+        or full:find("haunted", 1, true)
+        or full:find("craft", 1, true) then
         return "claim"
     end
 
@@ -284,9 +390,7 @@ local function classifyPrompt(p)
 end
 
 local function registerPrompt(p)
-    if not p or not p:IsA("ProximityPrompt") then
-        return
-    end
+    if not p or not p:IsA("ProximityPrompt") then return end
 
     local function updateClassification()
         buyPrompts[p] = nil
@@ -294,6 +398,11 @@ local function registerPrompt(p)
         local kind = classifyPrompt(p)
         if kind == "buy" then
             buyPrompts[p] = true
+            task.defer(function()
+                if p and p.Parent and p.Enabled then
+                    recordRunwaySpawn(p)
+                end
+            end)
         elseif kind == "claim" then
             claimPrompts[p] = true
         end
@@ -305,6 +414,11 @@ local function registerPrompt(p)
         watchedPrompts[p] = {
             p:GetPropertyChangedSignal("ActionText"):Connect(updateClassification),
             p:GetPropertyChangedSignal("ObjectText"):Connect(updateClassification),
+            p:GetPropertyChangedSignal("Enabled"):Connect(function()
+                if p.Enabled and buyPrompts[p] then
+                    recordRunwaySpawn(p)
+                end
+            end),
         }
     end
 end
@@ -334,118 +448,128 @@ table.insert(connections, workspace.DescendantRemoving:Connect(function(d)
     end
 end))
 
--- =========================================
--- MOTOR DE EVENTOS Y PREDICCION
--- =========================================
-
-local function stateOf(k)
-    if not track[k] then
-        track[k] = {
-            streakStart = nil,
-            lastSeen = 0,
-            intervals = {},
-            seen = 0,
-            activeCount = 0,
-        }
-    end
-    return track[k]
-end
-
-local function calcConfidence(intervals)
-    if #intervals == 0 then
-        return 0, nil
-    end
-    local m = median(intervals)
-    local d = mad(intervals, m)
-    local jitter = (d and m and m > 0) and (d / m) or 1
-    local conf = math.clamp(1 - jitter, 0, 1) * math.clamp(#intervals / math.max(CFG.minSamples * 2, 6), 0, 1)
-    return conf, m
-end
-
-local function scanEvents()
-    local t = now()
-    local present = {}
-
-    for p in pairs(buyPrompts) do
-        if p.Parent and p.Enabled then
-            local desc = extractFullDescriptor(p)
-            local m = mutationOf(desc)
-            if m then
-                present[m] = (present[m] or 0) + 1
-                local s = stateOf(m)
-
-                if s.lastSeen == 0 or (t - s.lastSeen) > CFG.gap then
-                    if s.streakStart then
-                        local iv = t - s.streakStart
-                        if iv > 2 and iv < 1200 then
-                            table.insert(s.intervals, iv)
-                            while #s.intervals > 40 do
-                                table.remove(s.intervals, 1)
-                            end
+-- Escuchar RemoteEvents en ReplicatedStorage para detectar anuncios de eventos del servidor
+for _, rem in ipairs(ReplicatedStorage:GetDescendants()) do
+    if rem:IsA("RemoteEvent") then
+        local rName = rem.Name:lower()
+        if rName:find("event") or rName:find("mut") or rName:find("weather") or rName:find("spawn") or rName:find("announce") then
+            table.insert(connections, rem.OnClientEvent:Connect(function(...)
+                local args = {...}
+                local textParts = {rem.Name}
+                for i = 1, math.min(#args, 4) do
+                    if type(args[i]) == "string" or type(args[i]) == "number" then
+                        textParts[#textParts + 1] = tostring(args[i])
+                    elseif type(args[i]) == "table" then
+                        for k, v in pairs(args[i]) do
+                            textParts[#textParts + 1] = tostring(k) .. ":" .. tostring(v)
                         end
                     end
-                    s.streakStart = t
-                    s.seen = s.seen + 1
                 end
-                s.lastSeen = t
-            end
-        end
-    end
-
-    for k, s in pairs(track) do
-        s.activeCount = present[k] or 0
-    end
-
-    local currentBest, currentBestN = nil, 0
-    for k, n in pairs(present) do
-        if n > currentBestN or (n == currentBestN and (MUT[k] or 0) > (MUT[currentBest] or 0)) then
-            currentBest, currentBestN = k, n
-        end
-    end
-    activeEvent = currentBest
-
-    local bestCandidate = nil
-    local soonestEta = math.huge
-    local bestConf = 0
-
-    for k, s in pairs(track) do
-        if #s.intervals >= 1 and s.streakStart then
-            local conf, m = calcConfidence(s.intervals)
-            if m then
-                local nextEta = s.streakStart + m
-                if nextEta > (t - CFG.window) and nextEta < soonestEta then
-                    soonestEta = nextEta
-                    bestCandidate = k
-                    bestConf = conf
+                local msg = table.concat(textParts, " ")
+                local detectedMut = mutationOf(msg)
+                if detectedMut then
+                    serverState.remoteSignals[detectedMut] = now()
                 end
-            end
+            end))
         end
-    end
-
-    if bestCandidate then
-        predictedEvent = bestCandidate
-        activeEta = soonestEta
-        activeConf = bestConf
-    elseif activeEvent and track[activeEvent] and #track[activeEvent].intervals >= 1 then
-        local conf, m = calcConfidence(track[activeEvent].intervals)
-        predictedEvent = activeEvent
-        activeEta = track[activeEvent].streakStart + m
-        activeConf = conf
-    else
-        predictedEvent = activeEvent
-        activeEta = nil
-        activeConf = 0
     end
 end
 
 -- =========================================
--- MOTOR DE LA BRUJA Y SCORING
+-- 6. ESCANER DE SERVIDOR, PASARELA Y BRUJA
 -- =========================================
+
+-- Parsea textos tipo "02:15", "45s", "Ready in 12s" desde BillboardGuis de la maquina
+local function parseTimerText(txt)
+    if type(txt) ~= "string" then return nil end
+    local m, s = txt:match("(%d+):(%d%d)")
+    if m and s then
+        return tonumber(m) * 60 + tonumber(s)
+    end
+    local secOnly = txt:match("(%d+)%s*[sS]")
+    if secOnly then
+        return tonumber(secOnly)
+    end
+    return nil
+end
+
+local function scanServerAndRunway()
+    local t = now()
+
+    -- 1. Calcular segundos exactos para las ventanas horarias del servidor (UTC)
+    -- Crystal: cada 30m (1800s); Eventos horarios (Cyber/Galaxy/Skeleton): cada 60m (3600s)
+    serverState.nextHalfHourSec = 1800 - (math.floor(t) % 1800)
+    serverState.nextHourSec = 3600 - (math.floor(t) % 3600)
+
+    -- 2. Contar cuantos Brainrots de cada mutacion estan caminando AHORA MISMO en la pasarela
+    local activeCounts = {}
+    for p in pairs(buyPrompts) do
+        if p.Parent and p.Enabled then
+            recordRunwaySpawn(p)
+            local desc = extractFullDescriptor(p)
+            local m = mutationOf(desc) or "default"
+            activeCounts[m] = (activeCounts[m] or 0) + 1
+        end
+    end
+
+    for k, mData in pairs(runway.mutations) do
+        mData.activeNow = activeCounts[k] or 0
+    end
+
+    -- 3. Detectar eventos activos en el servidor (Workspace Attributes + ReplicatedStorage + Lighting + Pasarela)
+    local detectedEvents = {}
+
+    local function checkContainerForEvents(container)
+        for k, v in pairs(container:GetAttributes()) do
+            local combined = tostring(k) .. " " .. tostring(v)
+            if v == true or (type(v) == "string" and v ~= "" and v:lower() ~= "none" and v:lower() ~= "default") then
+                local m = mutationOf(combined)
+                if m and m ~= "default" then
+                    detectedEvents[m] = "Atributo Servidor"
+                end
+            end
+            if tostring(k):lower():find("luck") and type(v) == "number" then
+                serverState.serverLuck = v
+            end
+        end
+    end
+
+    checkContainerForEvents(workspace)
+    checkContainerForEvents(ReplicatedStorage)
+    checkContainerForEvents(Lighting)
+
+    -- Revisar ValueObjects en ReplicatedStorage
+    for _, child in ipairs(ReplicatedStorage:GetChildren()) do
+        if child:IsA("StringValue") or child:IsA("BoolValue") then
+            local m = mutationOf(child.Name .. " " .. tostring(child.Value))
+            if m and m ~= "default" and (child.Value == true or type(child.Value) == "string") then
+                detectedEvents[m] = "ReplicatedStorage"
+            end
+        end
+    end
+
+    -- Si en la pasarela hay alguna mutacion exclusiva de evento, el evento esta 100% activo
+    for k, mData in pairs(runway.mutations) do
+        if mData.activeNow > 0 and not MUT_DATA[k].permanent then
+            detectedEvents[k] = string.format("En Pasarela (%d)", mData.activeNow)
+        end
+    end
+
+    -- Señales recientes de RemoteEvents (ultimos 90s)
+    for k, sigTime in pairs(serverState.remoteSignals) do
+        if (t - sigTime) < 90 then
+            detectedEvents[k] = "RemoteEvent"
+        end
+    end
+
+    serverState.activeEvents = detectedEvents
+end
 
 local function scanWitch()
     local t = now()
     local any, ready, closest = false, false, nil
     local count = 0
+    local foundCountdown = nil
     local char = lp.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
 
@@ -453,13 +577,29 @@ local function scanWitch()
         if p.Parent then
             any = true
             count = count + 1
+            local pos = getPromptPosition(p)
+            if hrp and pos then
+                local dist = (pos - hrp.Position).Magnitude
+                if not closest or dist < closest then
+                    closest = dist
+                end
+            end
+
             if p.Enabled then
                 ready = true
-                local pos = getPromptPosition(p)
-                if hrp and pos then
-                    local dist = (pos - hrp.Position).Magnitude
-                    if not closest or dist < closest then
-                        closest = dist
+            end
+
+            -- Buscar temporizador real en el modelo de la maquina (BillboardGui / SurfaceGui)
+            local rootModel = getRootModel(p)
+            if rootModel and not foundCountdown then
+                for _, desc in ipairs(rootModel:GetDescendants()) do
+                    if desc:IsA("TextLabel") and desc.Visible and desc.Text ~= "" then
+                        local parsed = parseTimerText(desc.Text)
+                        if parsed and parsed > 0 and parsed < 1800 then
+                            foundCountdown = parsed
+                            witch.machineText = desc.Text
+                            break
+                        end
                     end
                 end
             end
@@ -469,7 +609,7 @@ local function scanWitch()
     if any and ready and not witch.enabled then
         if witch.readyAt then
             local iv = t - witch.readyAt
-            if iv > 0.5 and iv < 600 then
+            if iv > 0.5 and iv < 900 then
                 table.insert(witch.intervals, iv)
                 while #witch.intervals > 30 do
                     table.remove(witch.intervals, 1)
@@ -482,72 +622,100 @@ local function scanWitch()
     witch.enabled = ready
     witch.closestDist = closest
     witch.promptCount = count
-    return closest
+    witch.machineCountdown = foundCountdown
 end
 
-local function scoreOfInstance(inst)
-    local desc = extractFullDescriptor(inst)
-    local m = mutationOf(desc)
-    return (m and MUT[m] or 1), m, cleanName(inst.Name) or inst.Name
-end
+-- =========================================
+-- 7. MOTOR DE CLAIM Y DETECCION EN BASE + MOCHILA
+-- =========================================
 
 local function recordClaimOutcome(inst)
-    if not pendingClaim then
-        return
-    end
+    if not pendingClaim then return end
     local claimData = pendingClaim
     pendingClaim = nil
 
-    local sc, mut, cleanLabel = scoreOfInstance(inst)
+    local desc = extractFullDescriptor(inst)
+    local mut = mutationOf(desc) or "default"
+    local mult = MUT_DATA[mut] and MUT_DATA[mut].mult or 1.0
+    local cleanLabel = extractCleanBrainrotName(inst)
+
     local rec = {
         at = os.date("%H:%M:%S"),
         delay = claimData.delay,
-        score = sc,
+        serverSec = claimData.serverSec,
+        score = mult,
         name = cleanLabel,
         mut = mut,
     }
     table.insert(claimLog, rec)
 
+    -- 1. Bucket por delay despues de que la maquina estuvo lista (0.25s)
     local bkey = math.floor(rec.delay / 0.25) * 0.25
-    buckets[bkey] = buckets[bkey] or { sum = 0, n = 0 }
-    buckets[bkey].sum = buckets[bkey].sum + sc
-    buckets[bkey].n = buckets[bkey].n + 1
-end
-
-local function watchResult()
-    if not pendingClaim then
-        return
+    delayBuckets[bkey] = delayBuckets[bkey] or { sum = 0, n = 0, bestMut = mut, bestMult = mult }
+    delayBuckets[bkey].sum = delayBuckets[bkey].sum + mult
+    delayBuckets[bkey].n = delayBuckets[bkey].n + 1
+    if mult > delayBuckets[bkey].bestMult then
+        delayBuckets[bkey].bestMult = mult
+        delayBuckets[bkey].bestMut = mut
     end
 
+    -- 2. Bucket por franja del segundo del minuto del servidor (bloques de 5s: 00-04s, 05-09s...)
+    local secBucket = math.floor(rec.serverSec / 5) * 5
+    secondBuckets[secBucket] = secondBuckets[secBucket] or { sum = 0, n = 0 }
+    secondBuckets[secBucket].sum = secondBuckets[secBucket].sum + mult
+    secondBuckets[secBucket].n = secondBuckets[secBucket].n + 1
+end
+
+local function watchClaimResult()
+    if not pendingClaim then return end
     local claimToken = pendingClaim
-    local deadline = now() + 6.0
-    local known = {}
+    local deadline = now() + 7.0
+    local known = setmetatable({}, {__mode = "k"})
 
     local bp = lp:FindFirstChildOfClass("Backpack")
     local char = lp.Character
 
     if bp then
-        for _, c in ipairs(bp:GetChildren()) do
-            known[c] = true
-        end
+        for _, c in ipairs(bp:GetChildren()) do known[c] = true end
     end
     if char then
-        for _, c in ipairs(char:GetChildren()) do
-            if c:IsA("Tool") or c:IsA("Model") then
-                known[c] = true
-            end
-        end
+        for _, c in ipairs(char:GetChildren()) do known[c] = true end
     end
+
+    -- Escucha temporal en Workspace por si el Brainrot fusionado aparece directamente en la Base del jugador
+    local tempConn
+    tempConn = workspace.DescendantAdded:Connect(function(inst)
+        if not labAlive or pendingClaim ~= claimToken then
+            if tempConn then tempConn:Disconnect() end
+            return
+        end
+        if inst:IsA("Model") or inst:IsA("ProximityPrompt") then
+            task.delay(0.15, function()
+                if pendingClaim ~= claimToken or not inst.Parent then return end
+                -- Si es un prompt de compra de la pasarela, ignorarlo (solo buscamos lo que salio en la Base/Bruja)
+                if inst:IsA("ProximityPrompt") and classifyPrompt(inst) == "buy" then
+                    return
+                end
+                local desc = extractFullDescriptor(inst)
+                local m = mutationOf(desc)
+                if m then
+                    if tempConn then tempConn:Disconnect() end
+                    recordClaimOutcome(inst)
+                end
+            end)
+        end
+    end)
 
     task.spawn(function()
         while labAlive and pendingClaim == claimToken and now() < deadline do
-            task.wait(0.12)
+            task.wait(0.1)
             local currBp = lp:FindFirstChildOfClass("Backpack")
             local currChar = lp.Character
 
             if currBp then
                 for _, c in ipairs(currBp:GetChildren()) do
                     if not known[c] and c:IsA("Tool") then
+                        if tempConn then tempConn:Disconnect() end
                         recordClaimOutcome(c)
                         return
                     end
@@ -557,6 +725,7 @@ local function watchResult()
             if currChar then
                 for _, c in ipairs(currChar:GetChildren()) do
                     if not known[c] and (c:IsA("Tool") or c:IsA("Model")) then
+                        if tempConn then tempConn:Disconnect() end
                         recordClaimOutcome(c)
                         return
                     end
@@ -564,6 +733,7 @@ local function watchResult()
             end
         end
 
+        if tempConn then tempConn:Disconnect() end
         if pendingClaim == claimToken then
             pendingClaim = nil
         end
@@ -572,13 +742,10 @@ end
 
 local function fireClaim()
     local t = now()
-    if t - lastClaimFire < CFG.claimCooldown then
-        return false
-    end
+    if t - lastClaimFire < CFG.claimCooldown then return false end
 
     local char = lp.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-
     local target = nil
     local bestDist = math.huge
 
@@ -597,9 +764,7 @@ local function fireClaim()
         end
     end
 
-    if not target then
-        return false
-    end
+    if not target then return false end
 
     lastClaimFire = t
     local origHold = target.HoldDuration
@@ -612,13 +777,11 @@ local function fireClaim()
             savedCF = hrp.CFrame
             hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
             teleported = true
-            task.wait(0.1)
+            task.wait(0.08)
         end
     end
 
-    pcall(function()
-        target.HoldDuration = 0
-    end)
+    pcall(function() target.HoldDuration = 0 end)
 
     local firedOk = false
     if type(fireproximityprompt) == "function" then
@@ -633,47 +796,44 @@ local function fireClaim()
     end
 
     if target and target.Parent then
-        pcall(function()
-            target.HoldDuration = origHold
-        end)
+        pcall(function() target.HoldDuration = origHold end)
     end
 
     if teleported and hrp and hrp.Parent and savedCF then
-        task.wait(0.08)
+        task.wait(0.06)
         hrp.CFrame = savedCF
     end
 
     pendingClaim = {
         delay = witch.readyAt and math.max(0, t - witch.readyAt) or 0,
+        serverSec = math.floor(t) % 60,
     }
-    watchResult()
+    watchClaimResult()
     return true
 end
 
 -- =========================================
--- INTERFAZ GRAFICA (GUI)
+-- 8. INTERFAZ GRAFICA (4 PESTAÑAS ESPECIALIZADAS)
 -- =========================================
 
 local parent
 if type(gethui) == "function" then
     local ok, res = pcall(gethui)
-    if ok and res then
-        parent = res
-    end
+    if ok and res then parent = res end
 end
 parent = parent or game:GetService("CoreGui")
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "SAB_MutationLab"
+gui.Name = "SAB_MutationLab_v3"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
 gui.Parent = parent
 _G.SAB_MutationLab = gui
 
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 310, 0, 480)
-main.Position = UDim2.new(0, 20, 0, 60)
-main.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
+main.Size = UDim2.new(0, 340, 0, 500)
+main.Position = UDim2.new(0, 20, 0, 55)
+main.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 main.BorderSizePixel = 0
 main.Active = true
 main.Draggable = true
@@ -682,12 +842,13 @@ Instance.new("UICorner", main).CornerRadius = UDim.new(0, 8)
 
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 30)
-title.BackgroundColor3 = Color3.fromRGB(28, 28, 36)
+title.BackgroundColor3 = Color3.fromRGB(26, 26, 35)
 title.BorderSizePixel = 0
-title.Text = "SAB | Mutation Lab + Bruja"
-title.TextColor3 = Color3.fromRGB(235, 235, 245)
+title.Text = "  SAB | Pasarela + Server + Bruja v3"
+title.TextColor3 = Color3.fromRGB(240, 240, 250)
 title.Font = Enum.Font.GothamBold
-title.TextSize = 13
+title.TextSize = 12
+title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = main
 Instance.new("UICorner", title).CornerRadius = UDim.new(0, 8)
 
@@ -701,98 +862,120 @@ close.Font = Enum.Font.GothamBold
 close.TextSize = 14
 close.Parent = main
 
-local lblEvent = Instance.new("TextLabel")
-lblEvent.Size = UDim2.new(1, -20, 0, 16)
-lblEvent.Position = UDim2.new(0, 10, 0, 34)
-lblEvent.BackgroundTransparency = 1
-lblEvent.Text = "Evento: buscando..."
-lblEvent.TextColor3 = Color3.fromRGB(190, 190, 200)
-lblEvent.Font = Enum.Font.GothamSemibold
-lblEvent.TextSize = 11
-lblEvent.TextXAlignment = Enum.TextXAlignment.Left
-lblEvent.Parent = main
+-- Cabecera Doble: Reloj de Pasarela (Izquierda) + Estado de Eventos/Bruja (Derecha)
+local headerBox = Instance.new("Frame")
+headerBox.Size = UDim2.new(1, -16, 0, 74)
+headerBox.Position = UDim2.new(0, 8, 0, 34)
+headerBox.BackgroundColor3 = Color3.fromRGB(22, 22, 29)
+headerBox.BorderSizePixel = 0
+headerBox.Parent = main
+Instance.new("UICorner", headerBox).CornerRadius = UDim.new(0, 6)
 
-local lblCd = Instance.new("TextLabel")
-lblCd.Size = UDim2.new(1, -20, 0, 34)
-lblCd.Position = UDim2.new(0, 10, 0, 50)
-lblCd.BackgroundTransparency = 1
-lblCd.Text = "--:--"
-lblCd.TextColor3 = Color3.fromRGB(120, 220, 160)
-lblCd.Font = Enum.Font.GothamBold
-lblCd.TextSize = 28
-lblCd.TextXAlignment = Enum.TextXAlignment.Left
-lblCd.Parent = main
+local lblNextSpawnTitle = Instance.new("TextLabel")
+lblNextSpawnTitle.Size = UDim2.new(0.48, -8, 0, 16)
+lblNextSpawnTitle.Position = UDim2.new(0, 8, 0, 4)
+lblNextSpawnTitle.BackgroundTransparency = 1
+lblNextSpawnTitle.Text = "PROXIMO EN PASARELA:"
+lblNextSpawnTitle.TextColor3 = Color3.fromRGB(160, 170, 190)
+lblNextSpawnTitle.Font = Enum.Font.GothamBold
+lblNextSpawnTitle.TextSize = 9
+lblNextSpawnTitle.TextXAlignment = Enum.TextXAlignment.Left
+lblNextSpawnTitle.Parent = headerBox
 
-local lblConf = Instance.new("TextLabel")
-lblConf.Size = UDim2.new(1, -20, 0, 14)
-lblConf.Position = UDim2.new(0, 10, 0, 84)
-lblConf.BackgroundTransparency = 1
-lblConf.Text = "confianza: sin datos"
-lblConf.TextColor3 = Color3.fromRGB(140, 140, 155)
-lblConf.Font = Enum.Font.Gotham
-lblConf.TextSize = 10
-lblConf.TextXAlignment = Enum.TextXAlignment.Left
-lblConf.Parent = main
+local lblSpawnTimer = Instance.new("TextLabel")
+lblSpawnTimer.Size = UDim2.new(0.48, -8, 0, 30)
+lblSpawnTimer.Position = UDim2.new(0, 8, 0, 18)
+lblSpawnTimer.BackgroundTransparency = 1
+lblSpawnTimer.Text = "--.-s"
+lblSpawnTimer.TextColor3 = Color3.fromRGB(110, 235, 160)
+lblSpawnTimer.Font = Enum.Font.GothamBold
+lblSpawnTimer.TextSize = 24
+lblSpawnTimer.TextXAlignment = Enum.TextXAlignment.Left
+lblSpawnTimer.Parent = headerBox
 
+local lblLastSpawned = Instance.new("TextLabel")
+lblLastSpawned.Size = UDim2.new(0.96, 0, 0, 18)
+lblLastSpawned.Position = UDim2.new(0, 8, 0, 52)
+lblLastSpawned.BackgroundTransparency = 1
+lblLastSpawned.Text = "Ultimo en salir: esperando..."
+lblLastSpawned.TextColor3 = Color3.fromRGB(210, 210, 225)
+lblLastSpawned.Font = Enum.Font.Gotham
+lblLastSpawned.TextSize = 10
+lblLastSpawned.TextXAlignment = Enum.TextXAlignment.Left
+lblLastSpawned.TextTruncate = Enum.TextTruncate.AtEnd
+lblLastSpawned.Parent = headerBox
+
+local lblEventBanner = Instance.new("TextLabel")
+lblEventBanner.Size = UDim2.new(0.50, -6, 0, 22)
+lblEventBanner.Position = UDim2.new(0.50, 0, 0, 6)
+lblEventBanner.BackgroundTransparency = 1
+lblEventBanner.Text = "Eventos: Normal"
+lblEventBanner.TextColor3 = Color3.fromRGB(255, 200, 110)
+lblEventBanner.Font = Enum.Font.GothamBold
+lblEventBanner.TextSize = 10
+lblEventBanner.TextXAlignment = Enum.TextXAlignment.Left
+lblEventBanner.TextTruncate = Enum.TextTruncate.AtEnd
+lblEventBanner.Parent = headerBox
+
+local lblClockWindow = Instance.new("TextLabel")
+lblClockWindow.Size = UDim2.new(0.50, -6, 0, 22)
+lblClockWindow.Position = UDim2.new(0.50, 0, 0, 28)
+lblClockWindow.BackgroundTransparency = 1
+lblClockWindow.Text = "Ventana 30m: --:--"
+lblClockWindow.TextColor3 = Color3.fromRGB(150, 205, 255)
+lblClockWindow.Font = Enum.Font.Gotham
+lblClockWindow.TextSize = 10
+lblClockWindow.TextXAlignment = Enum.TextXAlignment.Left
+lblClockWindow.Parent = headerBox
+
+-- Barra de estado
 local lblStatus = Instance.new("TextLabel")
-lblStatus.Size = UDim2.new(1, -20, 0, 14)
-lblStatus.Position = UDim2.new(0, 10, 0, 98)
+lblStatus.Size = UDim2.new(1, -16, 0, 14)
+lblStatus.Position = UDim2.new(0, 8, 0, 112)
 lblStatus.BackgroundTransparency = 1
-lblStatus.Text = "listo"
-lblStatus.TextColor3 = Color3.fromRGB(140, 200, 140)
+lblStatus.Text = "Iniciando escaneo en tiempo real..."
+lblStatus.TextColor3 = Color3.fromRGB(140, 205, 140)
 lblStatus.Font = Enum.Font.Gotham
 lblStatus.TextSize = 10
 lblStatus.TextXAlignment = Enum.TextXAlignment.Left
 lblStatus.TextTruncate = Enum.TextTruncate.AtEnd
 lblStatus.Parent = main
 
+-- Pestañas
 local tabs = {}
 local frames = {}
+local tabNames = {"Pasarela", "Bruja", "Servidor", "Log/Cfg"}
 
-local function mkTab(label, x)
+for i, name in ipairs(tabNames) do
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0.25, -8, 0, 24)
-    b.Position = UDim2.new(x, 6, 0, 116)
-    b.BackgroundColor3 = Color3.fromRGB(32, 32, 40)
+    b.Size = UDim2.new(0.25, -6, 0, 24)
+    b.Position = UDim2.new((i - 1) * 0.25, 4, 0, 130)
+    b.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
     b.BorderSizePixel = 0
-    b.Text = label
+    b.Text = name
     b.TextColor3 = Color3.fromRGB(220, 220, 230)
     b.Font = Enum.Font.GothamSemibold
     b.TextSize = 10
     b.Parent = main
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
-    tabs[#tabs + 1] = b
-    return b
-end
+    tabs[i] = b
 
-local function mkFrame()
     local f = Instance.new("Frame")
-    f.Size = UDim2.new(1, -20, 1, -156)
-    f.Position = UDim2.new(0, 10, 0, 146)
+    f.Size = UDim2.new(1, -16, 1, -166)
+    f.Position = UDim2.new(0, 8, 0, 158)
     f.BackgroundTransparency = 1
-    f.Visible = false
+    f.Visible = (i == 1)
     f.Parent = main
-    frames[#frames + 1] = f
-    return f
-end
+    frames[i] = f
 
-local tabNames = {"Eventos", "Bruja", "Log", "Config"}
-for i, n in ipairs(tabNames) do
-    local b = mkTab(n, (i - 1) * 0.25)
-    local f = mkFrame()
     b.MouseButton1Click:Connect(function()
         for j = 1, #frames do
-            frames[j].Visible = false
+            frames[j].Visible = (j == i)
+            tabs[j].BackgroundColor3 = (j == i) and Color3.fromRGB(45, 95, 70) or Color3.fromRGB(30, 30, 38)
         end
-        for j = 1, #tabs do
-            tabs[j].BackgroundColor3 = Color3.fromRGB(32, 32, 40)
-        end
-        f.Visible = true
-        b.BackgroundColor3 = Color3.fromRGB(50, 90, 70)
     end)
 end
-frames[1].Visible = true
-tabs[1].BackgroundColor3 = Color3.fromRGB(50, 90, 70)
+tabs[1].BackgroundColor3 = Color3.fromRGB(45, 95, 70)
 
 local function mkButton(parentF, txt, y, color, cb)
     local b = Instance.new("TextButton")
@@ -805,33 +988,15 @@ local function mkButton(parentF, txt, y, color, cb)
     b.Font = Enum.Font.GothamSemibold
     b.TextSize = 11
     b.Parent = parentF
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
     b.MouseButton1Click:Connect(cb)
     return b
 end
 
-local function mkBox(parentF, ph, y, default)
-    local t = Instance.new("TextBox")
-    t.Size = UDim2.new(1, 0, 0, 24)
-    t.Position = UDim2.new(0, 0, 0, y)
-    t.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
-    t.BorderSizePixel = 0
-    t.PlaceholderText = ph
-    t.Text = default or ""
-    t.TextColor3 = Color3.fromRGB(230, 230, 235)
-    t.Font = Enum.Font.Gotham
-    t.TextSize = 11
-    t.ClearTextOnFocus = false
-    t.Parent = parentF
-    Instance.new("UICorner", t).CornerRadius = UDim.new(0, 5)
-    return t
-end
-
 local function mkScroll(parentF, offsetY)
-    local topY = offsetY or 58
     local s = Instance.new("ScrollingFrame")
-    s.Size = UDim2.new(1, 0, 1, -topY)
-    s.Position = UDim2.new(0, 0, 0, topY)
+    s.Size = UDim2.new(1, 0, 1, -offsetY)
+    s.Position = UDim2.new(0, 0, 0, offsetY)
     s.BackgroundTransparency = 1
     s.BorderSizePixel = 0
     s.ScrollBarThickness = 3
@@ -844,267 +1009,318 @@ local function mkScroll(parentF, offsetY)
     l.Parent = s
 
     l:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        s.CanvasSize = UDim2.new(0, 0, 0, l.AbsoluteContentSize.Y + 4)
+        s.CanvasSize = UDim2.new(0, 0, 0, l.AbsoluteContentSize.Y + 6)
     end)
     return s
 end
 
--- =========================================
--- CONTENIDO DE LAS PESTAÑAS
--- =========================================
+-- TAB 1: PASARELA (Intervalos y probabilidad real de cada una de las 16 mutaciones)
+local lblRunwayInfo = Instance.new("TextLabel")
+lblRunwayInfo.Size = UDim2.new(1, 0, 0, 20)
+lblRunwayInfo.BackgroundTransparency = 1
+lblRunwayInfo.Text = "Spawns medidos: 0 | Cadencia media: --s"
+lblRunwayInfo.TextColor3 = Color3.fromRGB(185, 195, 210)
+lblRunwayInfo.Font = Enum.Font.GothamSemibold
+lblRunwayInfo.TextSize = 10
+lblRunwayInfo.TextXAlignment = Enum.TextXAlignment.Left
+lblRunwayInfo.Parent = frames[1]
 
--- TAB 1: EVENTOS
-local btnClaimSync = mkButton(frames[1], "Claim sincronizado: OFF", 0, Color3.fromRGB(60, 60, 70), function()
+local listRunwayMuts = mkScroll(frames[1], 24)
+
+-- TAB 2: BRUJA / HAUNTED FUSE
+local lblWitchState = Instance.new("TextLabel")
+lblWitchState.Size = UDim2.new(1, 0, 0, 34)
+lblWitchState.BackgroundColor3 = Color3.fromRGB(24, 24, 32)
+lblWitchState.BorderSizePixel = 0
+lblWitchState.Text = "Maquina: buscando en el mapa..."
+lblWitchState.TextColor3 = Color3.fromRGB(220, 220, 235)
+lblWitchState.Font = Enum.Font.GothamSemibold
+lblWitchState.TextSize = 10
+lblWitchState.Parent = frames[2]
+Instance.new("UICorner", lblWitchState).CornerRadius = UDim.new(0, 5)
+
+local lblBestPattern = Instance.new("TextLabel")
+lblBestPattern.Size = UDim2.new(1, 0, 0, 30)
+lblBestPattern.Position = UDim2.new(0, 0, 0, 38)
+lblBestPattern.BackgroundTransparency = 1
+lblBestPattern.Text = "Patron temporal: haz claims para analizar задерж/segundos"
+lblBestPattern.TextColor3 = Color3.fromRGB(235, 200, 120)
+lblBestPattern.Font = Enum.Font.Gotham
+lblBestPattern.TextSize = 9
+lblBestPattern.TextWrapped = true
+lblBestPattern.TextXAlignment = Enum.TextXAlignment.Left
+lblBestPattern.Parent = frames[2]
+
+local btnAutoClaim = mkButton(frames[2], "Auto-Claim al terminar / sincronizado: OFF", 70, Color3.fromRGB(55, 55, 68), function()
     CFG.autoClaim = not CFG.autoClaim
-    btnClaimSync.Text = "Claim sincronizado: " .. (CFG.autoClaim and "ON" or "OFF")
-    btnClaimSync.BackgroundColor3 = CFG.autoClaim and Color3.fromRGB(35, 130, 70) or Color3.fromRGB(60, 60, 70)
-    lblStatus.Text = CFG.autoClaim and "Claim sincronizado activado" or "Claim sincronizado desactivado"
+    lblStatus.Text = CFG.autoClaim and "Auto-Claim de la Bruja ACTIVADO" or "Auto-Claim DESACTIVADO"
 end)
 
-local boxLead = mkBox(frames[1], "Antelacion en segundos (ej. 0.35)", 30, "0.35")
-boxLead.FocusLost:Connect(function()
-    CFG.leadTime = tonumber(boxLead.Text) or CFG.leadTime
-    lblStatus.Text = string.format("Antelacion fijada en %.2fs", CFG.leadTime)
-end)
-
-local listMuts = mkScroll(frames[1], 60)
-
--- TAB 2: BRUJA
-local lblWitch = Instance.new("TextLabel")
-lblWitch.Size = UDim2.new(1, 0, 0, 36)
-lblWitch.Position = UDim2.new(0, 0, 0, 0)
-lblWitch.BackgroundColor3 = Color3.fromRGB(26, 26, 32)
-lblWitch.BorderSizePixel = 0
-lblWitch.Text = "maquina: sin detectar"
-lblWitch.TextColor3 = Color3.fromRGB(220, 220, 230)
-lblWitch.Font = Enum.Font.GothamSemibold
-lblWitch.TextSize = 11
-lblWitch.Parent = frames[2]
-Instance.new("UICorner", lblWitch).CornerRadius = UDim.new(0, 5)
-
-local lblBest = Instance.new("TextLabel")
-lblBest.Size = UDim2.new(1, 0, 0, 20)
-lblBest.Position = UDim2.new(0, 0, 0, 40)
-lblBest.BackgroundTransparency = 1
-lblBest.Text = "mejor franja: sin datos registrados"
-lblBest.TextColor3 = Color3.fromRGB(220, 190, 120)
-lblBest.Font = Enum.Font.Gotham
-lblBest.TextSize = 10
-lblBest.TextXAlignment = Enum.TextXAlignment.Left
-lblBest.Parent = frames[2]
-
-local btnClaimNow = mkButton(frames[2], "Claim manual ahora", 64, Color3.fromRGB(90, 70, 140), function()
+local btnManualClaim = mkButton(frames[2], "Reclamar Bruja Ahora (Manual)", 100, Color3.fromRGB(85, 65, 135), function()
     if fireClaim() then
-        lblStatus.Text = "Claim manual enviado a la maquina"
+        lblStatus.Text = "Claim enviado a la maquina"
     else
-        lblStatus.Text = "No hay prompt de Claim listo o en rango"
+        lblStatus.Text = "Maquina no lista o en enfriamiento"
     end
 end)
 
-local btnTpClaim = mkButton(frames[2], "TP al hacer Claim: ON", 94, Color3.fromRGB(50, 90, 130), function()
+local btnTpToggle = mkButton(frames[2], "Teletransportar al hacer Claim: ON", 130, Color3.fromRGB(45, 85, 125), function()
     CFG.tpOnClaim = not CFG.tpOnClaim
-    btnTpClaim.Text = "TP al hacer Claim: " .. (CFG.tpOnClaim and "ON" or "OFF")
-    btnTpClaim.BackgroundColor3 = CFG.tpOnClaim and Color3.fromRGB(50, 90, 130) or Color3.fromRGB(60, 60, 70)
 end)
 
-local listBuckets = mkScroll(frames[2], 126)
+local listWitchBuckets = mkScroll(frames[2], 162)
 
--- TAB 3: LOG
-local btnClear = mkButton(frames[3], "Limpiar historial", 0, Color3.fromRGB(70, 55, 55), function()
-    table.clear(claimLog)
-    for _, c in ipairs(listLog:GetChildren()) do
-        if c:IsA("TextLabel") then
-            c:Destroy()
-        end
+-- TAB 3: SERVIDOR & HORARIOS DE EVENTOS
+local listServerInfo = mkScroll(frames[3], 0)
+
+-- TAB 4: LOG & CONFIG
+local btnResetAll = mkButton(frames[4], "Reiniciar Estadisticas", 0, Color3.fromRGB(80, 50, 50), function()
+    runway.totalSpawns = 0
+    table.clear(runway.spawnIntervals)
+    for _, mData in pairs(runway.mutations) do
+        mData.count = 0
+        mData.lastSpawnAt = nil
+        table.clear(mData.intervals)
     end
-    lblStatus.Text = "Historial limpiado"
-end)
-
-local listLog = mkScroll(frames[3], 32)
-
--- TAB 4: CONFIG
-local boxScan = mkBox(frames[4], "Intervalo de escaneo (0.2 - 3s)", 0, "0.4")
-boxScan.FocusLost:Connect(function()
-    CFG.scanDelay = math.clamp(tonumber(boxScan.Text) or 0.4, 0.15, 3)
-    lblStatus.Text = string.format("Escaneo cada %.2fs", CFG.scanDelay)
-end)
-
-local btnReset = mkButton(frames[4], "Resetear datos aprendidos", 30, Color3.fromRGB(70, 55, 55), function()
-    table.clear(track)
-    table.clear(buckets)
     table.clear(claimLog)
-    activeEvent = nil
-    predictedEvent = nil
-    activeEta = nil
-    lblStatus.Text = "Datos estadisticos reseteados"
+    table.clear(delayBuckets)
+    table.clear(secondBuckets)
+    lblStatus.Text = "Estadisticas reiniciadas"
 end)
 
-local btnReload = mkButton(frames[4], "Recargar deteccion de Prompts", 62, Color3.fromRGB(50, 60, 80), function()
-    table.clear(buyPrompts)
-    table.clear(claimPrompts)
-    for _, d in ipairs(workspace:GetDescendants()) do
-        if d:IsA("ProximityPrompt") then
-            registerPrompt(d)
-        end
-    end
-    lblStatus.Text = "Prompts re-escaneados en Workspace"
-end)
+local listClaimLog = mkScroll(frames[4], 32)
 
 -- =========================================
--- RENDERIZADO INTELIGENTE
+-- 9. RENDERIZADO SIN PARPADEO (CON FIRMAS)
 -- =========================================
 
-local lastMutSig = ""
-local lastBucketSig = ""
-local lastLogCount = -1
+local lastRunwaySig = ""
+local lastWitchSig = ""
+local lastServerSig = ""
+local lastLogLen = -1
 
-local function renderMuts()
+local DISPLAY_ORDER = {
+    "eclipse", "crystal", "phantom", "cyber", "divine", "rainbow",
+    "cursed", "radioactive", "yin yang", "galaxy", "lava", "candy",
+    "bloodrot", "diamond", "gold", "default"
+}
+
+local function renderRunwayTab()
     local t = now()
-    local keys = {}
-    for k, s in pairs(track) do
-        if s.lastSeen and (t - s.lastSeen) < 300 then
-            keys[#keys + 1] = k
-        end
-    end
-    table.sort(keys)
+    local cadenceMed = median(runway.spawnIntervals)
+    lblRunwayInfo.Text = string.format(
+        "Spawns medidos: %d | Cadencia Pasarela: %s",
+        runway.totalSpawns,
+        cadenceMed and string.format("cada %.1fs", cadenceMed) or "calculando..."
+    )
 
-    local sigParts = {}
-    for _, k in ipairs(keys) do
-        local s = track[k]
-        local m = median(s.intervals)
-        local eta = (m and s.streakStart) and math.floor(s.streakStart + m - t) or -999
-        sigParts[#sigParts + 1] = string.format("%s:%d:%d:%d", k, #s.intervals, s.activeCount or 0, eta)
+    local sigParts = { tostring(runway.totalSpawns) }
+    for _, k in ipairs(DISPLAY_ORDER) do
+        local m = runway.mutations[k]
+        if m then
+            local med = median(m.intervals)
+            local rem = (med and m.lastSpawnAt) and math.floor((m.lastSpawnAt + med) - t) or -999
+            sigParts[#sigParts + 1] = string.format("%s:%d:%d:%d", k, m.activeNow, m.count, rem)
+        end
     end
 
     local sig = table.concat(sigParts, "|")
-    if sig == lastMutSig then
-        return
-    end
-    lastMutSig = sig
+    if sig == lastRunwaySig then return end
+    lastRunwaySig = sig
 
-    for _, c in ipairs(listMuts:GetChildren()) do
-        if c:IsA("TextLabel") then
-            c:Destroy()
+    for _, c in ipairs(listRunwayMuts:GetChildren()) do
+        if c:IsA("Frame") then c:Destroy() end
+    end
+
+    for idx, k in ipairs(DISPLAY_ORDER) do
+        local m = runway.mutations[k]
+        local info = MUT_DATA[k]
+        if m and info then
+            local row = Instance.new("Frame")
+            row.Size = UDim2.new(1, 0, 0, 26)
+            row.BackgroundColor3 = (m.activeNow > 0)
+                and Color3.fromRGB(32, 65, 45)
+                or Color3.fromRGB(22, 22, 28)
+            row.BorderSizePixel = 0
+            row.LayoutOrder = idx
+            row.Parent = listRunwayMuts
+            Instance.new("UICorner", row).CornerRadius = UDim.new(0, 4)
+
+            local pct = (runway.totalSpawns > 0) and ((m.count / runway.totalSpawns) * 100) or 0
+            local med = median(m.intervals)
+            local etaText = "--:--"
+
+            if med and m.lastSpawnAt then
+                local left = (m.lastSpawnAt + med) - t
+                if left > 0 then
+                    etaText = "ETA " .. fmtPrecise(left)
+                else
+                    etaText = "Cada ~" .. fmtPrecise(med)
+                end
+            elseif m.lastSpawnAt then
+                etaText = "Hace " .. fmtPrecise(t - m.lastSpawnAt)
+            elseif not info.permanent then
+                etaText = "Solo Evento"
+            end
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Size = UDim2.new(1, -10, 1, 0)
+            lbl.Position = UDim2.new(0, 6, 0, 0)
+            lbl.BackgroundTransparency = 1
+            lbl.Text = string.format(
+                "%s (%.2gx) | Pista:%d | Vistos:%d (%.1f%%) | %s",
+                k:upper(),
+                info.mult,
+                m.activeNow,
+                m.count,
+                pct,
+                etaText
+            )
+            lbl.TextColor3 = info.color
+            lbl.Font = Enum.Font.GothamSemibold
+            lbl.TextSize = 9
+            lbl.TextXAlignment = Enum.TextXAlignment.Left
+            lbl.TextTruncate = Enum.TextTruncate.AtEnd
+            lbl.Parent = row
         end
-    end
-
-    for i, k in ipairs(keys) do
-        local s = track[k]
-        local m = median(s.intervals)
-        local eta = (m and s.streakStart) and (s.streakStart + m) or nil
-
-        local l = Instance.new("TextLabel")
-        l.Size = UDim2.new(1, 0, 0, 24)
-        l.BackgroundColor3 = (k == activeEvent)
-            and Color3.fromRGB(35, 85, 55)
-            or Color3.fromRGB(26, 26, 32)
-        l.BorderSizePixel = 0
-        l.Text = string.format(
-            " [%s] Activos: %d | Ciclos: %d | ETA: %s",
-            k:upper(),
-            s.activeCount or 0,
-            #s.intervals,
-            eta and fmt(eta - t) or "--:--"
-        )
-        l.TextColor3 = Color3.fromRGB(225, 225, 235)
-        l.Font = Enum.Font.Gotham
-        l.TextSize = 10
-        l.TextXAlignment = Enum.TextXAlignment.Left
-        l.LayoutOrder = i
-        l.Parent = listMuts
-        Instance.new("UICorner", l).CornerRadius = UDim.new(0, 4)
     end
 end
 
-local function renderBuckets()
-    local arr = {}
-    for d, b in pairs(buckets) do
+local function renderWitchTab()
+    btnAutoClaim.Text = "Auto-Claim al terminar / sincronizado: " .. (CFG.autoClaim and "ON" or "OFF")
+    btnAutoClaim.BackgroundColor3 = CFG.autoClaim and Color3.fromRGB(35, 130, 70) or Color3.fromRGB(55, 55, 68)
+
+    btnTpToggle.Text = "Teletransportar al hacer Claim: " .. (CFG.tpOnClaim and "ON" or "OFF")
+    btnTpToggle.BackgroundColor3 = CFG.tpOnClaim and Color3.fromRGB(45, 85, 125) or Color3.fromRGB(55, 55, 68)
+
+    local dArr = {}
+    for d, b in pairs(delayBuckets) do
         if b.n >= 1 then
-            arr[#arr + 1] = { d = d, avg = b.sum / b.n, n = b.n }
+            dArr[#dArr + 1] = { d = d, avg = b.sum / b.n, n = b.n, bestMut = b.bestMut }
         end
     end
-    table.sort(arr, function(a, b)
-        if math.abs(a.avg - b.avg) < 0.001 then
-            return a.n > b.n
+    table.sort(dArr, function(a, b) return a.avg > b.avg end)
+
+    local sArr = {}
+    for sec, b in pairs(secondBuckets) do
+        if b.n >= 1 then
+            sArr[#sArr + 1] = { sec = sec, avg = b.sum / b.n, n = b.n }
         end
-        return a.avg > b.avg
-    end)
+    end
+    table.sort(sArr, function(a, b) return a.avg > b.avg end)
+
+    if dArr[1] and sArr[1] then
+        lblBestPattern.Text = string.format(
+            "Mejor Delay: +%.2fs (Media %.2fx) | Mejor Segundo Reloj: :%02ds-:%02ds (Media %.2fx)",
+            dArr[1].d, dArr[1].avg, sArr[1].sec, sArr[1].sec + 4, sArr[1].avg
+        )
+    end
 
     local sigParts = {}
-    for i = 1, math.min(#arr, 10) do
-        sigParts[#sigParts + 1] = string.format("%.2f:%.2f:%d", arr[i].d, arr[i].avg, arr[i].n)
+    for i = 1, math.min(#dArr, 8) do
+        sigParts[#sigParts + 1] = string.format("%.2f:%.2f:%d", dArr[i].d, dArr[i].avg, dArr[i].n)
     end
     local sig = table.concat(sigParts, "|")
-    if sig == lastBucketSig then
-        return
-    end
-    lastBucketSig = sig
+    if sig == lastWitchSig then return end
+    lastWitchSig = sig
 
-    for _, c in ipairs(listBuckets:GetChildren()) do
-        if c:IsA("TextLabel") then
-            c:Destroy()
-        end
+    for _, c in ipairs(listWitchBuckets:GetChildren()) do
+        if c:IsA("TextLabel") then c:Destroy() end
     end
 
-    for i = 1, math.min(#arr, 10) do
-        local e = arr[i]
+    for i = 1, math.min(#dArr, 8) do
+        local e = dArr[i]
         local l = Instance.new("TextLabel")
         l.Size = UDim2.new(1, 0, 0, 22)
-        l.BackgroundColor3 = (i == 1) and Color3.fromRGB(65, 55, 25) or Color3.fromRGB(26, 26, 32)
+        l.BackgroundColor3 = (i == 1) and Color3.fromRGB(65, 55, 25) or Color3.fromRGB(24, 24, 30)
         l.BorderSizePixel = 0
-        l.Text = string.format(" +%.2fs tras listo | Media Mult: %.2fx | Tiradas: %d", e.d, e.avg, e.n)
+        l.Text = string.format(
+            " Delay +%.2fs | Media: %.2fx | Mejor: %s | Tiradas: %d",
+            e.d, e.avg, tostring(e.bestMut):upper(), e.n
+        )
         l.TextColor3 = Color3.fromRGB(230, 220, 195)
         l.Font = Enum.Font.Gotham
-        l.TextSize = 10
+        l.TextSize = 9
         l.TextXAlignment = Enum.TextXAlignment.Left
         l.LayoutOrder = i
-        l.Parent = listBuckets
+        l.Parent = listWitchBuckets
         Instance.new("UICorner", l).CornerRadius = UDim.new(0, 4)
-    end
-
-    if arr[1] then
-        lblBest.Text = string.format("Mejor ventana: +%.2fs (Media %.2fx en %d claims)", arr[1].d, arr[1].avg, arr[1].n)
-    else
-        lblBest.Text = "mejor franja: sin datos registrados"
     end
 end
 
-local function renderLog()
-    if #claimLog == lastLogCount then
-        return
+local function renderServerTab()
+    local evList = {}
+    for k, src in pairs(serverState.activeEvents) do
+        evList[#evList + 1] = k:upper() .. " (" .. src .. ")"
     end
-    lastLogCount = #claimLog
+    table.sort(evList)
 
-    for _, c in ipairs(listLog:GetChildren()) do
-        if c:IsA("TextLabel") then
-            c:Destroy()
-        end
+    local sig = table.concat(evList, ",") .. "|" .. tostring(math.floor(serverState.nextHalfHourSec / 5))
+    if sig == lastServerSig then return end
+    lastServerSig = sig
+
+    for _, c in ipairs(listServerInfo:GetChildren()) do
+        if c:IsA("TextLabel") then c:Destroy() end
+    end
+
+    local lines = {
+        "=== EVENTOS DETECTADOS EN EL SERVIDOR ===",
+        (#evList > 0) and table.concat(evList, ", ") or "Ningun evento especial activo (Solo Permanentes)",
+        "",
+        "=== RELOJ OFICIAL DE VENTANAS HORARIAS ===",
+        "Proxima ventana de 30m (Crystal 13x): " .. fmtTime(serverState.nextHalfHourSec),
+        "Proxima ventana de 60m (Cyber/Galaxy/Skeleton): " .. fmtTime(serverState.nextHourSec),
+        "Server Luck detectado: " .. tostring(serverState.serverLuck or "Base (1x)"),
+        "",
+        "=== CLASIFICACION OFICIAL DE MUTACIONES ===",
+        "Permanentes (Pasarela 24/7): Default, Gold, Diamond, Rainbow",
+        "Eventos Horarios/Rotativos: Crystal (30m), Cyber, Galaxy, Eclipse",
+        "Admin Abuse / Especiales: Candy, Bloodrot, Lava, Yin Yang,",
+        "Radioactive, Cursed, Divine, Phantom",
+    }
+
+    for i, txt in ipairs(lines) do
+        local l = Instance.new("TextLabel")
+        l.Size = UDim2.new(1, 0, 0, 18)
+        l.BackgroundTransparency = 1
+        l.Text = " " .. txt
+        l.TextColor3 = txt:find("===") and Color3.fromRGB(130, 200, 255) or Color3.fromRGB(215, 215, 225)
+        l.Font = txt:find("===") and Enum.Font.GothamBold or Enum.Font.Gotham
+        l.TextSize = 9
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.LayoutOrder = i
+        l.Parent = listServerInfo
+    end
+end
+
+local function renderLogTab()
+    if #claimLog == lastLogLen then return end
+    lastLogLen = #claimLog
+
+    for _, c in ipairs(listClaimLog:GetChildren()) do
+        if c:IsA("TextLabel") then c:Destroy() end
     end
 
     for i = #claimLog, math.max(1, #claimLog - 40), -1 do
         local r = claimLog[i]
         local l = Instance.new("TextLabel")
-        l.Size = UDim2.new(1, 0, 0, 20)
+        l.Size = UDim2.new(1, 0, 0, 18)
         l.BackgroundTransparency = 1
         l.Text = string.format(
-            " %s | +%.2fs | %s (%.2fx) | %s",
-            r.at,
-            r.delay,
-            r.mut and r.mut:upper() or "DEFAULT",
-            r.score,
-            tostring(r.name):sub(1, 18)
+            " %s | +%.2fs (seg :%02d) | %s (%.2gx) | %s",
+            r.at, r.delay, r.serverSec, r.mut:upper(), r.score, tostring(r.name):sub(1, 16)
         )
-        l.TextColor3 = (r.score > 2) and Color3.fromRGB(140, 230, 165) or Color3.fromRGB(160, 160, 175)
+        l.TextColor3 = (r.score > 1.5) and Color3.fromRGB(140, 235, 165) or Color3.fromRGB(170, 170, 185)
         l.Font = Enum.Font.Gotham
         l.TextSize = 9
         l.TextXAlignment = Enum.TextXAlignment.Left
         l.LayoutOrder = #claimLog - i
-        l.Parent = listLog
+        l.Parent = listClaimLog
     end
 end
 
 -- =========================================
--- LIMPIEZA Y CIERRE
+-- 10. LIMPIEZA Y BUCLES PRINCIPALES
 -- =========================================
 
 local function cleanup()
@@ -1128,85 +1344,99 @@ end)
 
 gui.Destroying:Connect(cleanup)
 
--- =========================================
--- LOOPS PRINCIPALES
--- =========================================
-
+-- Bucle de escaneo de Servidor, Pasarela y Bruja
 task.spawn(function()
     while labAlive and gui.Parent do
-        pcall(scanEvents)
+        pcall(scanServerAndRunway)
         pcall(scanWitch)
         task.wait(CFG.scanDelay)
     end
 end)
 
+-- Bucle de actualizacion de cronometros al decimo de segundo (0.1s)
 task.spawn(function()
     while labAlive and gui.Parent do
         local t = now()
 
-        if activeEvent then
-            lblEvent.Text = string.format("Evento en mapa: %s", activeEvent:upper())
-            lblEvent.TextColor3 = Color3.fromRGB(255, 190, 110)
-        elseif predictedEvent then
-            lblEvent.Text = string.format("Proximo estimado: %s", predictedEvent:upper())
-            lblEvent.TextColor3 = Color3.fromRGB(160, 205, 255)
+        -- 1. Cronometro exacto del proximo Brainrot en la Pasarela
+        local cadenceMed = median(runway.spawnIntervals)
+        if cadenceMed and runway.lastGlobalSpawnAt then
+            local nextSpawnLeft = (runway.lastGlobalSpawnAt + cadenceMed) - t
+            lblSpawnTimer.Text = fmtPrecise(nextSpawnLeft)
+            lblSpawnTimer.TextColor3 = (nextSpawnLeft <= 1.0)
+                and Color3.fromRGB(255, 115, 115)
+                or Color3.fromRGB(110, 235, 160)
         else
-            lblEvent.Text = "Evento activo: recopilando apariciones..."
-            lblEvent.TextColor3 = Color3.fromRGB(170, 170, 180)
+            lblSpawnTimer.Text = string.format("%d/2", #runway.spawnIntervals)
+            lblSpawnTimer.TextColor3 = Color3.fromRGB(180, 180, 195)
         end
 
-        if activeEta then
-            local left = activeEta - t
-            lblCd.Text = fmt(left)
-            lblCd.TextColor3 = (left <= 3) and Color3.fromRGB(255, 110, 110)
-                or (left <= 10 and Color3.fromRGB(255, 205, 110))
-                or Color3.fromRGB(120, 220, 160)
+        local lastMutInfo = MUT_DATA[runway.lastMutation] or MUT_DATA["default"]
+        lblLastSpawned.Text = string.format(
+            "Ultimo en Pasarela: %s [%s %.2gx]",
+            runway.lastBrainrotName,
+            runway.lastMutation:upper(),
+            lastMutInfo.mult
+        )
+        lblLastSpawned.TextColor3 = lastMutInfo.color
+
+        -- 2. Banner de eventos activos y reloj horario
+        local activeEvNames = {}
+        for k in pairs(serverState.activeEvents) do
+            activeEvNames[#activeEvNames + 1] = k:upper()
+        end
+        if #activeEvNames > 0 then
+            lblEventBanner.Text = "ACTIVO: " .. table.concat(activeEvNames, ", ")
+            lblEventBanner.TextColor3 = Color3.fromRGB(120, 255, 150)
         else
-            lblCd.Text = "--:--"
-            lblCd.TextColor3 = Color3.fromRGB(120, 130, 140)
+            lblEventBanner.Text = "Servidor: Sin Evento Especial"
+            lblEventBanner.TextColor3 = Color3.fromRGB(190, 190, 205)
         end
 
-        local targetKey = predictedEvent or activeEvent
-        local s = targetKey and track[targetKey]
-        local n = s and #s.intervals or 0
+        lblClockWindow.Text = string.format(
+            "Ventana 30m: %s | 1h: %s",
+            fmtTime(serverState.nextHalfHourSec),
+            fmtTime(serverState.nextHourSec)
+        )
 
-        if n >= CFG.minSamples then
-            lblConf.Text = string.format("Confianza: %d%% | Muestras de %s: %d", math.floor(activeConf * 100), targetKey:upper(), n)
-        else
-            lblConf.Text = string.format("Aprendiendo intervalos... (%d/%d muestras)", n, CFG.minSamples)
-        end
-
+        -- 3. Estado y temporizador real de la Bruja
         if witch.promptCount == 0 then
-            lblWitch.Text = "Maquina: sin detectar en el mapa"
-            lblWitch.TextColor3 = Color3.fromRGB(180, 140, 140)
+            lblWitchState.Text = "Maquina Bruja/Fuse: acerca tu personaje para detectarla"
+            lblWitchState.TextColor3 = Color3.fromRGB(190, 140, 140)
         elseif witch.enabled then
-            local distTxt = witch.closestDist and string.format(" (a %.0f studs)", witch.closestDist) or ""
-            lblWitch.Text = string.format("Maquina: LISTA%s | Ciclos: %d", distTxt, #witch.intervals)
-            lblWitch.TextColor3 = Color3.fromRGB(140, 235, 160)
+            local distStr = witch.closestDist and string.format(" (%.0f studs)", witch.closestDist) or ""
+            lblWitchState.Text = "Maquina: ¡LISTA PARA RECLAMAR!" .. distStr
+            lblWitchState.TextColor3 = Color3.fromRGB(130, 245, 155)
+        elseif witch.machineCountdown then
+            lblWitchState.Text = string.format(
+                "Maquina fusionando | Lista en: %s (Texto: %s)",
+                fmtTime(witch.machineCountdown),
+                witch.machineText
+            )
+            lblWitchState.TextColor3 = Color3.fromRGB(240, 200, 120)
         else
-            local m = median(witch.intervals)
-            local eta = (m and witch.readyAt) and (witch.readyAt + m) or nil
-            lblWitch.Text = eta
-                and string.format("Maquina: enfriando | Lista en %s", fmt(eta - t))
-                or string.format("Maquina: enfriando (%d detectadas)", witch.promptCount)
-            lblWitch.TextColor3 = Color3.fromRGB(230, 190, 130)
+            local wMed = median(witch.intervals)
+            local wEta = (wMed and witch.readyAt) and ((witch.readyAt + wMed) - t) or nil
+            lblWitchState.Text = wEta
+                and ("Maquina en ciclo | Estimado: " .. fmtTime(wEta))
+                or string.format("Maquina detectada (%d prompts) - Esperando fusion", witch.promptCount)
+            lblWitchState.TextColor3 = Color3.fromRGB(220, 190, 130)
         end
 
-        if CFG.autoClaim and activeEta and witch.enabled then
-            local left = activeEta - t
-            if left <= CFG.leadTime and left >= -CFG.window then
-                if fireClaim() then
-                    lblStatus.Text = "Claim sincronizado disparado con exito"
-                end
+        -- 4. Auto-Claim cuando la maquina se habilita
+        if CFG.autoClaim and witch.enabled then
+            if fireClaim() then
+                lblStatus.Text = "Auto-Claim ejecutado al instante en la Bruja"
             end
         end
 
-        renderMuts()
-        renderBuckets()
-        renderLog()
+        renderRunwayTab()
+        renderWitchTab()
+        renderServerTab()
+        renderLogTab()
 
         task.wait(0.1)
     end
 end)
 
-lblStatus.Text = "Escaneando pedestales y maquina en vivo..."
+lblStatus.Text = "Laboratorio v3 activo: midiendo Pasarela, Servidor y Bruja..."
