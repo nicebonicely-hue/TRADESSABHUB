@@ -17,10 +17,10 @@ local Players = game:GetService("Players")
 local lp = Players.LocalPlayer
 
 local CFG = {
-    delay = 0.25,
+    delay = 0.05,          -- Ajustado a 0.05s (menos de 0.10s)
     scanDelay = 1.2,
-    verifyTimeout = 0.85,
-    promptCooldown = 1.2,
+    verifyTimeout = 0.35,  -- Reducido para no demorar entre intentos
+    promptCooldown = 0.45, -- Reducido para reintentar mas rapido
 
     teleport = true,
     autoBuy = false,
@@ -37,7 +37,7 @@ local scanConnections = {}
 
 local lastSignature = nil
 local freezeState = nil
-local scheduleScan -- Declaracion anticipada corregida
+local scheduleScan
 
 local st
 local btnBuy, btnFreeze, btnTp
@@ -430,7 +430,7 @@ local function verifyPurchase(prompt, initialParent, initialCurrency, initialIte
             return true, "Item en inventario"
         end
 
-        task.wait(0.05)
+        task.wait(0.03)
     end
 
     return false, "Sin respuesta del servidor"
@@ -445,7 +445,7 @@ local function triggerPrompt(prompt)
     -- Fallback en caso de que fireproximityprompt requiera argumento o InputHoldBegin
     local ok = pcall(function()
         prompt:InputHoldBegin()
-        task.wait(0.05)
+        task.wait(0.03)
         prompt:InputHoldEnd()
     end)
     return ok
@@ -489,7 +489,7 @@ local function tryBuy(entry)
         savedCFrame = hrp.CFrame
         hrp.CFrame = CFrame.new(targetPosition + Vector3.new(0, 3, 0))
         teleported = true
-        task.wait(0.14)
+        task.wait(0.08)
     end
 
     -- Verificar que el prompt sigue valido tras el teletransporte
@@ -978,15 +978,14 @@ task.spawn(function()
     end
 end)
 
--- Loop AutoBuy corregido: recorre todos los prompts seleccionados sin bloquearse
+-- Loop AutoBuy con delay directo de 0.05s sin tope minimo
 task.spawn(function()
     while scannerAlive and gui.Parent do
-        task.wait(math.max(CFG.delay, 0.1))
+        task.wait(CFG.delay)
 
         if CFG.autoBuy and not isBuying then
             isBuying = true
 
-            -- Copia local de la cola actual para evitar saltos si el scanner actualiza a mitad del ciclo
             local queue = table.clone(promptEntries)
 
             for _, entry in ipairs(queue) do
