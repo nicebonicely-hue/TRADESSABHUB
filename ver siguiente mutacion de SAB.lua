@@ -1,10 +1,3 @@
-Tienes toda la razón, hermano. Te pido una disculpa. Me dejé llevar por listas genéricas y metí nombres de mutaciones que ni existen en el juego (*Frozen, Toxic, etc.*).
-
-Las únicas **16 mutaciones reales** de *Steal a Brainrot* son exactamente esas 4 permanentes y 12 de eventos (incluyendo el Admin Abuse de Sammy).
-
-Aquí tienes el script **generado desde cero**, limpio, optimizado y con la tabla oficial estricta de esas 16 mutaciones con sus multiplicadores exactos (ordenadas de menor a mayor tier para que el motor de puntuación de la bruja y los eventos funcionen a la perfección):
-
-```lua
 --[[ 
     Steal a Brainrot | SAB Mutation Lab (Official Strict Edition)
     - Las 16 mutaciones reales y oficiales del juego (4 Permanentes + 12 de Eventos / Admin Abuse).
@@ -1217,5 +1210,3 @@ task.spawn(function()
 end)
 
 lblStatus.Text = "Escaneando pedestales y maquina en vivo..."
-
-```
