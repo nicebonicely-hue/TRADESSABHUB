@@ -1,45 +1,71 @@
 
--- SAB GRAB HUB
--- Compact GUI + Local Carry Hide
--- Para Roblox Studio / experiencias propias
+-- SAB GRAB HUB - FIXED LOCAL HIDE
+-- Para pruebas locales / experiencias propias.
+-- No automatiza robos ni interacciones de otros jugadores.
 
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
+local UIS = game:GetService("UserInputService")
 
-local Player = Players.LocalPlayer
+local player = Players.LocalPlayer
 
 if _G.SABGrabHub then
-    pcall(function()
-        _G.SABGrabHub:Destroy()
-    end)
+    pcall(_G.SABGrabHub.Destroy)
 end
 
-local Settings = {
+local CFG = {
     AutoHide = false,
-    Hidden = false,
-    GrabDelay = 0.01,
-    Scale = 1,
+    Delay = 0.15,
+    MinWidth = 220,
+    MaxWidth = 420,
 }
 
-local Original = {}
-local Connections = {}
+local saved = {}
+local connections = {}
+local gui
 
 local function getCharacter()
-    return Player.Character
+    return player.Character
 end
 
-local function isCarriedTool(obj)
-    return obj:IsA("Tool")
-end
+local function isCharacterBody(obj)
+    local names = {
+        Humanoid = true,
+        HumanoidRootPart = true,
+        Head = true,
+        Torso = true,
+        UpperTorso = true,
+        LowerTorso = true,
+        LeftHand = true,
+        RightHand = true,
+        LeftFoot = true,
+        RightFoot = true,
+        LeftUpperArm = true,
+        RightUpperArm = true,
+        LeftLowerArm = true,
+        RightLowerArm = true,
+        LeftUpperLeg = true,
+        RightUpperLeg = true,
+        LeftLowerLeg = true,
+        RightLowerLeg = true,
+    }
 
-local function getCarriedObjects()
-    local result = {}
+    return names[obj.Name] == true
+        or obj:IsA("Accessory")
+        or obj:IsA("Humanoid")
+        or obj:IsA("Script")
+        or obj:IsA("LocalScript")
+    end
+
+local function getCandidates()
     local char = getCharacter()
+    local result = {}
 
     if not char then return result end
 
     for _, obj in ipairs(char:GetChildren()) do
-        if isCarriedTool(obj) then
+        if (obj:IsA("Model") or obj:IsA("Tool"))
+        and not isCharacterBody(obj)
+        and #obj:GetDescendants() > 0 then
             table.insert(result, obj)
         end
     end
@@ -48,87 +74,88 @@ local function getCarriedObjects()
 end
 
 local function hideObject(obj)
-    if not Original[obj] then
-        Original[obj] = {}
+    if not obj or not obj.Parent then return end
+
+    saved[obj] = saved[obj] or {}
+
+    local parts = {}
+
+    if obj:IsA("BasePart") then
+        table.insert(parts, obj)
     end
 
-    for _, part in ipairs(obj:GetDescendants()) do
-        if part:IsA("BasePart") then
-            if Original[obj][part] == nil then
-                Original[obj][part] = {
-                    Transparency = part.LocalTransparencyModifier
-                }
-            end
-
-            part.LocalTransparencyModifier = 1
-        elseif part:IsA("Decal") or part:IsA("Texture") then
-            if Original[obj][part] == nil then
-                Original[obj][part] = {
-                    Transparency = part.Transparency
-                }
-            end
-
-            part.Transparency = 1
+    for _, item in ipairs(obj:GetDescendants()) do
+        if item:IsA("BasePart") then
+            table.insert(parts, item)
         end
+    end
+
+    for _, part in ipairs(parts) do
+        if saved[obj][part] == nil then
+            saved[obj][part] = part.LocalTransparencyModifier
+        end
+
+        part.LocalTransparencyModifier = 1
     end
 end
 
 local function restoreObject(obj)
-    local saved = Original[obj]
-    if not saved then return end
+    local data = saved[obj]
+    if not data then return end
 
-    for part, data in pairs(saved) do
+    for part, transparency in pairs(data) do
         if part and part.Parent then
             pcall(function()
-                if part:IsA("BasePart") then
-                    part.LocalTransparencyModifier =
-                        data.Transparency
-                else
-                    part.Transparency = data.Transparency
-                end
+                part.LocalTransparencyModifier = transparency
             end)
         end
     end
 
-    Original[obj] = nil
+    saved[obj] = nil
 end
 
-local function hideCarried()
-    for _, obj in ipairs(getCarriedObjects()) do
+local function hideAll()
+    local candidates = getCandidates()
+
+    for _, obj in ipairs(candidates) do
         hideObject(obj)
     end
-    Settings.Hidden = true
+
+    return #candidates
 end
 
-local function restoreCarried()
-    for obj in pairs(Original) do
+local function restoreAll()
+    for obj in pairs(saved) do
         restoreObject(obj)
     end
-    Settings.Hidden = false
 end
 
 -- GUI
-local gui = Instance.new("ScreenGui")
-gui.Name = "SABGrabHub"
-gui.ResetOnSpawn = false
-
 local parent
+
 pcall(function()
     parent = gethui()
 end)
 
-gui.Parent = parent or game:GetService("CoreGui")
+if not parent then
+    parent = game:GetService("CoreGui")
+end
+
+gui = Instance.new("ScreenGui")
+gui.Name = "SABGrabHubFixed"
+gui.ResetOnSpawn = false
+gui.Parent = parent
 
 local main = Instance.new("Frame")
-main.Size = UDim2.fromOffset(245, 285)
-main.Position = UDim2.new(0.5, -122, 0.5, -142)
+main.Size = UDim2.fromOffset(260, 245)
+main.Position = UDim2.new(0.5, -130, 0.5, -122)
 main.BackgroundColor3 = Color3.fromRGB(19, 22, 32)
 main.BorderSizePixel = 0
 main.Active = true
 main.Parent = gui
 
 Instance.new("UICorner", main).CornerRadius =
-    UDim.new(0, 12)
+    UDim.new(0, 10)
 
 local outline = Instance.new("UIStroke", main)
 outline.Color = Color3.fromRGB(75, 115, 210)
@@ -136,205 +163,291 @@ outline.Thickness = 1.5
 
 local function create(class, props, parentObject)
     local obj = Instance.new(class)
+
     for key, value in pairs(props) do
         obj[key] = value
     end
+
     obj.Parent = parentObject
     return obj
 end
 
-local header = create("TextButton", {
-    Size = UDim2.new(1, 0, 0, 40),
+local header = create("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 38),
     BackgroundColor3 = Color3.fromRGB(32, 42, 67),
-    Text = "SAB GRAB HUB     [-]",
+    Text = "SAB GRAB HUB",
     TextColor3 = Color3.new(1, 1, 1),
     Font = Enum.Font.GothamBold,
-    TextSize = 13,
+    TextSize = 14,
 }, main)
 
 Instance.new("UICorner", header).CornerRadius =
     UDim.new(0, 10)
 
-local body = create("Frame", {
-    Size = UDim2.new(1, -20, 1, -55),
-    Position = UDim2.fromOffset(10, 48),
+local status = create("TextLabel", {
+    Size = UDim2.new(1, -20, 0, 26),
+    Position = UDim2.fromOffset(10, 43),
     BackgroundTransparency = 1,
+    Text = "STATUS: READY",
+    TextColor3 = Color3.fromRGB(170, 200, 255),
+    Font = Enum.Font.GothamBold,
+    TextSize = 11,
+    TextXAlignment = Enum.TextXAlignment.Left,
 }, main)
 
-local layout = create("UIListLayout", {
-    Padding = UDim.new(0, 8),
-    SortOrder = Enum.SortOrder.LayoutOrder,
-}, body)
-
-local function makeButton(text, color, callback)
-    local button = create("TextButton", {
-        Size = UDim2.new(1, 0, 0, 34),
-        BackgroundColor3 = color,
-        Text = text,
-        TextColor3 = Color3.new(1, 1, 1),
-        Font = Enum.Font.GothamSemibold,
-        TextSize = 12,
-    }, body)
-
-    Instance.new("UICorner", button).CornerRadius =
-        UDim.new(0, 7)
-
-    button.MouseButton1Click:Connect(callback)
-    return button
+local function setStatus(message, color)
+    status.Text = "STATUS: " .. message
+    status.TextColor3 = color or Color3.fromRGB(170, 200, 255)
 end
 
-local status = create("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 27),
-    BackgroundTransparency = 1,
-    Text = "Estado: listo",
-    TextColor3 = Color3.fromRGB(170, 200, 255),
-    Font = Enum.Font.Gotham,
-    TextSize = 11,
-}, body)
+local function makeButton(text, y, callback)
+    local b = create("TextButton", {
+        Size = UDim2.new(1, -20, 0, 34),
+        Position = UDim2.fromOffset(10, y),
+        BackgroundColor3 = Color3.fromRGB(48, 67, 115),
+        Text = text,
+        TextColor3 = Color3.new(1, 1, 1),
+        Font = Enum.Font.GothamBold,
+        TextSize = 12,
+    }, main)
 
-local function updateStatus(message)
-    status.Text = "Estado: " .. message
+    Instance.new("UICorner", b).CornerRadius =
+        UDim.new(0, 7)
+
+    b.MouseButton1Click:Connect(callback)
+    return b
 end
 
 local hideButton = makeButton(
     "HIDE CARRIED BRAINROT",
-    Color3.fromRGB(45, 105, 85),
+    78,
     function()
-        hideCarried()
-        updateStatus("Brainrot ocultado localmente")
+        local count = hideAll()
+
+        if count > 0 then
+            setStatus(
+                "HIDDEN: " .. count .. " OBJECT(S)",
+                Color3.fromRGB(100, 230, 150)
+            )
+        else
+            setStatus(
+                "NO CARRIED MODEL DETECTED",
+                Color3.fromRGB(255, 190, 100)
+            )
+        end
     end
 )
 
 local restoreButton = makeButton(
     "UNHIDE BRAINROT",
-    Color3.fromRGB(55, 85, 145),
+    118,
     function()
-        restoreCarried()
-        updateStatus("Brainrot restaurado")
+        restoreAll()
+        setStatus("OBJECTS RESTORED")
     end
 )
 
 local autoButton = makeButton(
     "AUTO HIDE: OFF",
-    Color3.fromRGB(90, 70, 110),
+    158,
     function()
-        Settings.AutoHide = not Settings.AutoHide
-        autoButton.Text = "AUTO HIDE: " ..
-            (Settings.AutoHide and "ON" or "OFF")
-        updateStatus("Auto Hide actualizado")
-    end
-)
+        CFG.AutoHide = not CFG.AutoHide
 
-local delayLabel = create("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 22),
-    BackgroundTransparency = 1,
-    Text = "Intervalo solicitado: 0.01 segundos",
-    TextColor3 = Color3.fromRGB(210, 215, 230),
-    Font = Enum.Font.Gotham,
-    TextSize = 10,
-}, body)
+        if CFG.AutoHide then
+            autoButton.Text = "AUTO HIDE: ON"
+            autoButton.BackgroundColor3 =
+                Color3.fromRGB(35, 125, 75)
 
-makeButton(
-    "RESET SETTINGS",
-    Color3.fromRGB(110, 65, 65),
-    function()
-        Settings.AutoHide = false
-        Settings.Hidden = false
-        restoreCarried()
-        autoButton.Text = "AUTO HIDE: OFF"
-        updateStatus("Configuracion reiniciada")
-    end
-)
+            local count = hideAll()
 
--- Auto Hide local
-table.insert(Connections, game:GetService("RunService").Heartbeat:Connect(
-    function()
-        if Settings.AutoHide then
-            for _, obj in ipairs(getCarriedObjects()) do
-                hideObject(obj)
-            end
+            setStatus(
+                "AUTO HIDE ENABLED (" .. count .. ")",
+                Color3.fromRGB(100, 230, 150)
+            )
+        else
+            autoButton.Text = "AUTO HIDE: OFF"
+            autoButton.BackgroundColor3 =
+                Color3.fromRGB(48, 67, 115)
+
+            setStatus("AUTO HIDE DISABLED")
         end
     end
-))
+)
 
--- Detectar respawn
-table.insert(Connections, Player.CharacterAdded:Connect(
+makeButton(
+    "RESTORE ALL / RESET",
+    198,
     function()
-        Original = {}
-        Settings.Hidden = false
+        CFG.AutoHide = false
+        autoButton.Text = "AUTO HIDE: OFF"
+        autoButton.BackgroundColor3 =
+            Color3.fromRGB(48, 67, 115)
+
+        restoreAll()
+        setStatus("RESET COMPLETE")
     end
-))
+)
+
+-- Detectar objetos que aparezcan mientras Auto Hide está ON
+local function watchCharacter(char)
+    if connections.ChildAdded then
+        connections.ChildAdded:Disconnect()
+    end
+
+    connections.ChildAdded = char.ChildAdded:Connect(function(obj)
+        if not CFG.AutoHide then return end
+
+        task.delay(CFG.Delay, function()
+            if CFG.AutoHide and obj.Parent == char then
+                if obj:IsA("Model") or obj:IsA("Tool") then
+                    hideObject(obj)
+                    setStatus("NEW OBJECT HIDDEN",
+                        Color3.fromRGB(100, 230, 150))
+                end
+            end
+        end)
+    end)
+end
+
+if player.Character then
+    watchCharacter(player.Character)
+end
+
+connections.CharacterAdded = player.CharacterAdded:Connect(function(char)
+    restoreAll()
+    saved = {}
+    task.wait(0.5)
+    watchCharacter(char)
+    setStatus("CHARACTER UPDATED")
+end)
 
 -- Minimizar
 local minimized = false
 
-header.MouseButton1Click:Connect(function()
+local minimize = create("TextButton", {
+    Size = UDim2.fromOffset(28, 28),
+    Position = UDim2.new(1, -34, 0, 5),
+    BackgroundColor3 = Color3.fromRGB(60, 75, 110),
+    Text = "-",
+    TextColor3 = Color3.new(1, 1, 1),
+    Font = Enum.Font.GothamBold,
+    TextSize = 16,
+}, main)
+
+minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
-    body.Visible = not minimized
+    for _, item in ipairs(main:GetChildren()) do
+        if item:IsA("TextButton") and item ~= minimize then
+            item.Visible = not minimized
+        elseif item == status then
+            item.Visible = not minimized
+        end
+    end
+
     main.Size = minimized
-        and UDim2.fromOffset(245, 40)
-        or UDim2.fromOffset(245, 285)
-    header.Text = minimized
-        and "SAB GRAB HUB     [+]"
-        or "SAB GRAB HUB     [-]"
+        and UDim2.fromOffset(260, 38)
+        or UDim2.fromOffset(260, 245)
+
+    minimize.Text = minimized and "+" or "-"
 end)
 
--- Redimensionar
+-- Redimensionamiento sencillo
 local resize = create("TextButton", {
-    Size = UDim2.fromOffset(22, 22),
-    Position = UDim2.new(1, -22, 1, -22),
+    Size = UDim2.fromOffset(20, 20),
+    Position = UDim2.new(1, -20, 1, -20),
     BackgroundColor3 = Color3.fromRGB(75, 105, 180),
     Text = "↘",
     TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 14,
+    TextSize = 13,
 }, main)
 
 local resizing = false
+local startPoint
 local startSize
-local startInput
 
 resize.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
     or input.UserInputType == Enum.UserInputType.Touch then
         resizing = true
+        startPoint = input.Position
         startSize = main.Size
-        startInput = input.Position
     end
 end)
 
-table.insert(Connections, UserInputService.InputChanged:Connect(
-    function(input)
-        if resizing and (
-            input.UserInputType == Enum.UserInputType.MouseMovement
-            or input.UserInputType == Enum.UserInputType.Touch
-        ) then
-            local delta = input.Position - startInput
-            main.Size = UDim2.fromOffset(
-                math.clamp(startSize.X.Offset + delta.X, 190, 450),
-                math.clamp(startSize.Y.Offset + delta.Y, 40, 550)
-            )
-        end
-    end
-))
+connections.InputChanged = UIS.InputChanged:Connect(function(input)
+    if not resizing then return end
 
-table.insert(Connections, UserInputService.InputEnded:Connect(
-    function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            resizing = false
-        end
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+    or input.UserInputType == Enum.UserInputType.Touch then
+        local delta = input.Position - startPoint
+
+        main.Size = UDim2.fromOffset(
+            math.clamp(startSize.X.Offset + delta.X,
+                CFG.MinWidth, CFG.MaxWidth),
+            math.clamp(startSize.Y.Offset + delta.Y, 38, 420)
+        )
     end
-))
+end)
+
+connections.InputEnded = UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        resizing = false
+    end
+end)
+
+-- Arrastrar panel
+local dragging = false
+local dragStart
+local originalPosition
+
+header.Active = true
+
+header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        originalPosition = main.Position
+    end
+end)
+
+connections.DragChanged = UIS.InputChanged:Connect(function(input)
+    if not dragging then return end
+
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+    or input.UserInputType == Enum.UserInputType.Touch then
+        local delta = input.Position - dragStart
+
+        main.Position = UDim2.new(
+            originalPosition.X.Scale,
+            originalPosition.X.Offset + delta.X,
+            originalPosition.Y.Scale,
+            originalPosition.Y.Offset + delta.Y
+        )
+    end
+end)
+
+connections.DragEnded = UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
 
 _G.SABGrabHub = {
     Destroy = function()
-        restoreCarried()
-        for _, connection in ipairs(Connections) do
-            connection:Disconnect()
+        CFG.AutoHide = false
+        restoreAll()
+
+        for _, connection in pairs(connections) do
+            if typeof(connection) == "RBXScriptConnection" then
+                connection:Disconnect()
+            end
         end
+
         gui:Destroy()
     end
 }
 
-print("[SAB GRAB HUB] Loaded")
-
+print("[SAB GRAB HUB] Fixed version loaded")
