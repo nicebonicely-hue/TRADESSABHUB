@@ -1,7 +1,7 @@
 --[[
     ==================================================
     SAB CODE HUNTER HUB - Steal a Brainrot (Delta)
-    Versión: 3.0 - Optimizado y Producción
+    Versión: 3.1 - Escaneo Activo cada 5 Segundos
     Autor: Asistente Experto Luau
     ==================================================
 ]]--
@@ -20,13 +20,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui")
 
--- Variables de Estado y Configuración Global
+-- Variables de Estado y Configuración Global (Escaneo restaurado a 5 segundos)
 getgenv().SAB_Config = {
     CodeHunterActive = true,
     RiddleSolverActive = true,
     AutoRedeemActive = false,
     NotificationsActive = true,
-    ScanInterval = 6, -- Segundos optimizados para bajo consumo
+    ScanInterval = 5, -- Escaneo exacto cada 5 segundos
     GeminiApiKey = "",
 }
 
@@ -40,7 +40,7 @@ if CoreGui:FindFirstChild("SABCodeHunterHub") then
 end
 
 -- ==========================================
--- 1. CREACIÓN DE LA INTERFAZ GRÁFICA OPTIMIZADA
+-- 1. CREACIÓN DE LA INTERFAZ GRÁFICA
 -- ==========================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "SABCodeHunterHub"
@@ -198,7 +198,7 @@ StatusIndicator.TextColor3 = Color3.fromRGB(50, 220, 100)
 StatusIndicator.TextSize = 11
 
 -- ==========================================
--- 2. UTILIDADES Y LOGS OPTIMIZADOS
+-- 2. UTILIDADES Y LOGS
 -- ==========================================
 local function LogMessage(text, color)
     pcall(function()
@@ -248,7 +248,6 @@ local function AddToDatabase(codeText, origin, status)
     LogMessage("Detectado: " .. codeText, Color3.fromRGB(255, 220, 100))
     SendNotification("Code Hunter", "¡Código encontrado: " .. codeText)
     
-    -- Si el Auto Redeem está activo, canjear al instante en un hilo separado
     if getgenv().SAB_Config.AutoRedeemActive then
         task.spawn(function()
             TryRedeemCodeInstant(Database[#Database])
@@ -294,7 +293,7 @@ local function SolveRiddleWithGemini(riddleText)
 end
 
 -- ==========================================
--- 5. CODE HUNTER OPTIMIZADO (SIN LAG)
+-- 5. CODE HUNTER ACTIVO (ESCANEA CADA 5 SEGUNDOS)
 -- ==========================================
 local function ScanUIElements()
     if not getgenv().SAB_Config.CodeHunterActive then return end
@@ -305,9 +304,11 @@ local function ScanUIElements()
                 local text = gui.Text
                 if text and #text > 3 and #text < 40 then
                     local lowerText = string.lower(text)
-                    if string.find(lowerText, "code") or string.find(lowerText, "sammy") or string.find(lowerText, "riddle") then
+                    if string.find(lowerText, "code") or string.find(lowerText, "sammy") or string.find(lowerText, "riddle") or string.find(lowerText, "free") then
                         if not scannedCache[text] then
                             scannedCache[text] = true
+                            LogMessage("Texto UI: " .. text, Color3.fromRGB(180, 150, 255))
+                            
                             if string.find(lowerText, "riddle") or string.find(lowerText, "hint") then
                                 SolveRiddleWithGemini(text)
                             else
@@ -326,7 +327,7 @@ local function ScanUIElements()
 end
 
 -- ==========================================
--- 6. CANJE INSTANTÁNEO (0 DELAY SEGURO)
+-- 6. CANJE INSTANTÁNEO
 -- ==========================================
 function TryRedeemCodeInstant(codeObj)
     if codeObj.Status == "VALID" or codeObj.Status == "EXPIRED" then return end
@@ -337,7 +338,6 @@ function TryRedeemCodeInstant(codeObj)
     pcall(function()
         for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
             if obj:IsA("RemoteEvent") and (string.find(string.lower(obj.Name), "code") or string.find(string.lower(obj.Name), "redeem")) then
-                -- Disparo instantáneo sin esperas artificiales innecesarias
                 obj:FireServer(codeObj.Code)
                 redeemed = true
             end
@@ -357,7 +357,6 @@ QuickRedeemBtn.MouseButton1Click:Connect(function()
     LogMessage("Procesando Quick Redeem instantáneo...", Color3.fromRGB(255, 220, 100))
     for _, item in ipairs(Database) do
         if item.Status == "UNKNOWN" then
-            -- Ejecución en paralelo instantánea con hilos independientes
             task.spawn(function()
                 TryRedeemCodeInstant(item)
             end)
@@ -366,7 +365,7 @@ QuickRedeemBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ==========================================
--- 7. CONTROLES Y CONFIGURACIÓN CORREGIDOS
+-- 7. CONTROLES Y CONFIGURACIÓN
 -- ==========================================
 local function CreateToggle(name, defaultState, callback)
     local btn = Instance.new("TextButton")
@@ -396,7 +395,6 @@ CreateToggle("Riddle Solver", true, function(state) getgenv().SAB_Config.RiddleS
 CreateToggle("Auto Redeem", false, function(state) getgenv().SAB_Config.AutoRedeemActive = state end)
 CreateToggle("Notifications", true, function(state) getgenv().SAB_Config.NotificationsActive = state end)
 
--- Corrección del operador ternario en Minimizar (Sintaxis Luau corregida)
 MinBtn.MouseButton1Click:Connect(function()
     isMinimized = not isMinimized
     ContentFrame.Visible = not isMinimized
@@ -410,16 +408,16 @@ CloseBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ==========================================
--- 8. BUCLE PRINCIPAL DE BAJO CONSUMO
+-- 8. BUCLE PRINCIPAL DE ESANEO CADA 5 SEGUNDOS
 -- ==========================================
 task.spawn(function()
-    LogMessage("SAB Code Hunter v3 Activo.", Color3.fromRGB(100, 220, 255))
+    LogMessage("SAB Code Hunter v3.1 Iniciado. Escaneando cada 5s.", Color3.fromRGB(100, 220, 255))
     while ScreenGui.Parent do
         pcall(function()
             if getgenv().SAB_Config.CodeHunterActive then
                 ScanUIElements()
             end
         end)
-        task.wait(getgenv().SAB_Config.ScanInterval)
+        task.wait(getgenv().SAB_Config.ScanInterval) -- Intervalo exacto de 5 segundos
     end
 end)
