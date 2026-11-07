@@ -1,72 +1,329 @@
 --[[
     ============================================================================
-    PROYECTO: SAB UNIVERSAL AUTO INTERACT E HUB [OPTIMIZADO Y CORREGIDO]
+    PROYECTO: SAB INTERACTION SCANNER HUB (UNIVERSAL & MANUAL EXPLORER)
     Compatibilidad: Delta Executor / Luau (Roblox - Steal a Brainrot)
+    Descripción: Explorador universal 100% manual de interacciones, ProximityPrompts
+                 y objetos del juego con sistema de confianza y panel de inspección.
     ============================================================================
 ]]--
 
 -- Limpieza de ejecución previa
-if _G.SAB_UniversalAutoInteract then
+if _G.SAB_InteractionScanner then
     pcall(function()
-        _G.SAB_UniversalAutoInteract.Cleanup()
+        _G.SAB_InteractionScanner.Cleanup()
     end)
 end
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
-local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 5)
-
--- Contenedor seguro compatible con Delta (gethui o CoreGui)
 local ProtectedGui = (gethui and gethui()) or CoreGui
 
--- Configuración Global del Sistema
-getgenv().SAB_InteractConfig = {
-    AutoInteractActive = false,
-    AutoScanActive = true,
-    ScanInterval = 3.5,
-    CooldownTime = 2.5, -- Segundos de espera por interacción para evitar spam/lag
+-- ============================================================================
+// SECCIÓN 1: CONFIGURACIÓN Y ESTADO GLOBAL
+-- ============================================================================
+getgenv().SAB_ScannerConfig = {
+    AutoScanInterval = 10,
+    IncludeReplicatedStorage = false,
     Notifications = true,
 }
 
-local detectedInteractions = {}
-local excludedCount = 0
-local activeInteractingCount = 0
-local interactionCooldowns = {}
+local ScannerState = {
+    alive = true,
+    isScanning = false,
+    autoScanActive = false,
+    interactions = {},       -- Lista completa de registros de interacciones
+    selectedEntry = nil,     -- Objeto seleccionado actualmente para inspección
+    activeHighlight = nil,   -- ESP 3D Highlight actual
+    activeBillboard = nil,   -- BillboardGui flotante actual
+}
 
--- Limpiar interfaz anterior si existe
-if ProtectedGui:FindFirstChild("SABUniversalAutoInteractHub") then
-    ProtectedGui.SABUniversalAutoInteractHub:Destroy()
+-- ============================================================================
+// SECCIÓN 2: BASE DE CONOCIMIENTO E IDENTIFICACIÓN INTELIGENTE (SAB)
+-- ============================================================================
+-- Catálogo de patrones para identificar nombres reales basados en pistas contextuales
+local SAB_KNOWLEDGE_BASE = {
+    {
+        keywords = {"witch", "cauldron", "haunted", "bruja", "caldera"},
+        identifiedName = "Máquina de las Brujas / Haunted Cauldron",
+        category = "Máquinas",
+        confidence = "IDENTIFICADO"
+    },
+    {
+        keywords = {"fuse", "fusion", "merger", "combin"},
+        identifiedName = "Fuse Machine (Estación de Fusión)",
+        category = "Máquinas",
+        confidence = "IDENTIFICADO"
+    },
+    {
+        keywords = {"craft", "crafter", "workbench", "fabric"},
+        identifiedName = "Crafting Machine (Fabricación)",
+        category = "Máquinas",
+        confidence = "IDENTIFICADO"
+    },
+    {
+        keywords = {"rainbow", "rainbowizer", "mutator"},
+        identifiedName = "Rainbow & Mutation Machine",
+        category = "Máquinas",
+        confidence = "IDENTIFICADO"
+    },
+    {
+        keywords = {"merchant", "trader", "comerc", "tienda", "shop"},
+        identifiedName = "Comerciante / Vendedor Especial",
+        category = "Comerciantes",
+        confidence = "PROBABLE"
+    },
+    {
+        keywords = {"ritual", "altar", "shrine", "sacrif"},
+        identifiedName = "Altar de Ritual / Evento Místico",
+        category = "Rituales",
+        confidence = "PROBABLE"
+    },
+    {
+        keywords = {"wheel", "spin", "lucky", "gacha", "dispenser"},
+        identifiedName = "Ruleta / Dispensador de Evento",
+        category = "Eventos",
+        confidence = "PROBABLE"
+    },
+    {
+        keywords = {"brainrot", "collect", "pickup", "base", "claim"},
+        identifiedName = "Objeto Recogible / Brainrot Coleccionable",
+        category = "Brainrot Pickup / Collectibles",
+        confidence = "IDENTIFICADO"
+    }
+}
+
+-- ============================================================================
+// SECCIÓN 3: UTILIDADES GEOMÉTRICAS Y DE TEXTO
+-- ============================================================================
+local function Normalize(str)
+    return tostring(str or ""):lower():gsub("[%s_%-%p]+", "")
+end
+
+local function GetInstancePosition(inst)
+    if not inst then return nil end
+    if inst:IsA("BasePart") then
+        return inst.Position
+    elseif inst:IsA("Model") then
+        local ok, pivot = pcall(function() return inst:GetPivot().Position end)
+        if ok and pivot then return pivot end
+        local part = inst:FindFirstChildWhichIsA("BasePart", true)
+        if part then return part.Position end
+    else
+        local parentPart = inst:FindFirstAncestorWhichIsA("BasePart")
+        if parentPart then return parentPart.Position end
+    end
+    return nil
+end
+
+local function GetPlayerDistance(pos)
+    if not pos then return 99999 end
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return 99999 end
+    return (hrp.Position - pos).Magnitude
+end
+
+local function KeyCodeToString(keyCode)
+    if not keyCode then return "None" end
+    local name = tostring(keyCode)
+    return name:gsub("Enum.KeyCode.", "")
 end
 
 -- ============================================================================
--- 1. CREACIÓN DE LA INTERFAZ GRÁFICA ESCALABLE Y MODERNA
+// SECCIÓN 4: MOTOR DE IDENTIFICACIÓN INTELIGENTE
 -- ============================================================================
+local function IdentifyInteractionObject(prompt, parentModel)
+    local actionText = prompt.ActionText or ""
+    local objectText = prompt.ObjectText or ""
+    local promptName = prompt.Name or ""
+    local modelName = parentModel and parentModel.Name or ""
+    local fullName = prompt:GetFullName()
+
+    local rawContext = Normalize(actionText .. " " .. objectText .. " " .. promptName .. " " .. modelName .. " " .. fullName)
+
+    -- Buscar coincidencias en la base de conocimiento
+    for _, entry in ipairs(SAB_KNOWLEDGE_BASE) do
+        for _, kw in ipairs(entry.keywords) do
+            if rawContext:find(kw, 1, true) then
+                return entry.identifiedName, entry.category, entry.confidence
+            end
+        end
+    end
+
+    -- Si tiene un texto descriptivo válido, asignarlo como Probable
+    if objectText ~= "" and #objectText >= 3 then
+        return objectText, "Otros", "PROBABLE"
+    elseif actionText ~= "" and #actionText >= 3 then
+        return actionText .. " (" .. (parentModel and parentModel.Name or "Objeto") .. ")", "Otros", "PROBABLE"
+    end
+
+    -- Si no hay suficiente información, marcar como Desconocido sin inventar datos
+    return parentModel and parentModel.Name or prompt.Name, "Desconocidos", "DESCONOCIDO"
+end
+
+-- ============================================================================
+// SECCIÓN 5: ESCANER UNIVERSAL DE INTERACCIONES
+-- ============================================================================
+local function PerformUniversalScan(onComplete)
+    if ScannerState.isScanning then return end
+    ScannerState.isScanning = true
+
+    task.spawn(function()
+        local results = {}
+        local seenPaths = {}
+
+        local function ScanContainer(container)
+            local ok, descendants = pcall(function() return container:GetDescendants() end)
+            if not ok or not descendants then return end
+
+            for _, inst in ipairs(descendants) do
+                if not ScannerState.alive then break end
+
+                if inst:IsA("ProximityPrompt") then
+                    local parentModel = inst:FindFirstAncestorWhichIsA("Model") or inst.Parent
+                    local path = inst:GetFullName()
+
+                    if not seenPaths[path] then
+                        seenPaths[path] = true
+
+                        local identifiedName, category, confidence = IdentifyInteractionObject(inst, parentModel)
+                        local pos = GetInstancePosition(parentModel or inst)
+                        local distance = GetPlayerDistance(pos)
+
+                        table.insert(results, {
+                            instance = inst,
+                            parentModel = parentModel,
+                            path = path,
+                            identifiedName = identifiedName,
+                            originalAction = inst.ActionText or "",
+                            originalObject = inst.ObjectText or "",
+                            keyUsed = KeyCodeToString(inst.GamepadKeyCode), -- o KeyboardKeyCode según versión
+                            keyboardKey = KeyCodeToString(inst.KeyboardKeyCode),
+                            holdDuration = inst.HoldDuration,
+                            maxDistance = inst.MaxActivationDistance,
+                            enabled = inst.Enabled,
+                            category = category,
+                            confidence = confidence,
+                            position = pos,
+                            distance = distance,
+                            containerName = container.Name
+                        })
+                    end
+                end
+            end
+        end
+
+        ScanContainer(Workspace)
+        if ScannerState.includeReplicatedStorage then
+            pcall(function() ScanContainer(game:GetService("ReplicatedStorage")) end)
+        end
+
+        -- Ordenar por distancia al jugador
+        table.sort(results, function(a, b)
+            return a.distance < b.distance
+        end)
+
+        ScannerState.interactions = results
+        ScannerState.isScanning = false
+
+        if onComplete then
+            onComplete(results)
+        end
+    end)
+end
+
+-- ============================================================================
+// SECCIÓN 6: LOCALIZADOR VISUAL 3D (SOLO MANUAL / SELECCIÓN)
+-- ============================================================================
+local function ClearVisualLocator()
+    if ScannerState.activeHighlight then
+        pcall(function() ScannerState.activeHighlight:Destroy() end)
+        ScannerState.activeHighlight = nil
+    end
+    if ScannerState.activeBillboard then
+        pcall(function() ScannerState.activeBillboard:Destroy() end)
+        ScannerState.activeBillboard = nil
+    end
+end
+
+local function InspectAndLocateObject(entry)
+    ClearVisualLocator()
+    ScannerState.selectedEntry = entry
+
+    if not entry or not entry.parentModel or not entry.parentModel.Parent then
+        return
+    end
+
+    local target = entry.parentModel
+    local pos = entry.position
+    if not pos then return end
+
+    -- Crear Highlight 3D visible a través de paredes (Sin activar nada)
+    local hl = Instance.new("Highlight")
+    hl.Name = "SAB_ScannerHighlight"
+    hl.Adornee = target
+    hl.FillColor = Color3.fromRGB(138, 43, 226) -- Violeta neón
+    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+    hl.FillTransparency = 0.5
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = target
+    ScannerState.activeHighlight = hl
+
+    -- BillboardGui flotante con el nombre identificado
+    local part = target:IsA("BasePart") and target or target:FindFirstChildWhichIsA("BasePart", true)
+    if part then
+        local bb = Instance.new("BillboardGui")
+        bb.Name = "SAB_ScannerBillboard"
+        bb.Adornee = part
+        bb.Size = UDim2.new(0, 200, 0, 50)
+        bb.StudsOffset = Vector3.new(0, 3, 0)
+        bb.AlwaysOnTop = true
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Parent = bb
+        lbl.BackgroundTransparency = 1
+        lbl.Size = UDim2.new(1, 0, 1, 0)
+        lbl.Font = Enum.Font.GothamBold
+        lbl.Text = "📌 " .. entry.identifiedName
+        lbl.TextColor3 = Color3.fromRGB(220, 180, 255)
+        lbl.TextSize = 12
+        lbl.TextStrokeTransparency = 0.2
+
+        bb.Parent = part
+        ScannerState.activeBillboard = bb
+    end
+end
+
+-- ============================================================================
+// SECCIÓN 7: INTERFAZ GRÁFICA (SAB INTERACTION SCANNER)
+-- ============================================================================
+if ProtectedGui:FindFirstChild("SABInteractionScannerHub") then
+    ProtectedGui.SABInteractionScannerHub:Destroy()
+end
+
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "SABUniversalAutoInteractHub"
+ScreenGui.Name = "SABInteractionScannerHub"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = ProtectedGui
 
-local successGui = pcall(function()
-    ScreenGui.Parent = ProtectedGui
-end)
-if not successGui then
-    ScreenGui.Parent = PlayerGui
-end
-
--- Ventana Principal (Escalable y centrada)
+-- Ventana Principal
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
 MainFrame.Parent = ScreenGui
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-MainFrame.BorderColor3 = Color3.fromRGB(100, 50, 180)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 12, 25)
+MainFrame.BorderColor3 = Color3.fromRGB(120, 60, 220)
 MainFrame.BorderSizePixel = 2
 MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-MainFrame.Size = UDim2.new(0, 480, 0, 380)
+MainFrame.Size = UDim2.new(0, 750, 0, 480)
 MainFrame.Active = true
 MainFrame.Draggable = true
 
@@ -90,15 +347,15 @@ local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Name = "TitleLabel"
 TitleLabel.Parent = Header
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Position = UDim2.new(0, 12, 0, 0)
-TitleLabel.Size = UDim2.new(0, 300, 1, 0)
+TitleLabel.Position = UDim2.new(0, 15, 0, 0)
+TitleLabel.Size = UDim2.new(0, 400, 1, 0)
 TitleLabel.Font = Enum.Font.GothamBold
-TitleLabel.Text = "SAB UNIVERSAL HUB [PRO]"
+TitleLabel.Text = "SAB INTERACTION SCANNER [UNIVERSAL]"
 TitleLabel.TextColor3 = Color3.fromRGB(210, 170, 255)
 TitleLabel.TextSize = 13
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 
--- Botones de Ventana (Cerrar / Minimizar)
+-- Botones de Ventana
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Name = "CloseBtn"
 CloseBtn.Parent = Header
@@ -137,36 +394,53 @@ ContentFrame.BackgroundTransparency = 1
 ContentFrame.Position = UDim2.new(0, 0, 0, 38)
 ContentFrame.Size = UDim2.new(1, 0, 1, -73)
 
--- Lista de Interacciones Detectadas (ScrollingFrame Izquierda)
-local ListScrolling = Instance.new("ScrollingFrame")
-ListScrolling.Name = "ListScrolling"
-ListScrolling.Parent = ContentFrame
-ListScrolling.BackgroundColor3 = Color3.fromRGB(10, 10, 18)
-ListScrolling.BorderColor3 = Color3.fromRGB(50, 30, 90)
-ListScrolling.Position = UDim2.new(0, 10, 0, 10)
-ListScrolling.Size = UDim2.new(0, 280, 1, -20)
-ListScrolling.CanvasSize = UDim2.new(0, 0, 0, 0)
-ListScrolling.ScrollBarThickness = 5
+-- Barra de Pestañas Superior (Tabs)
+local TabBar = Instance.new("Frame")
+TabBar.Name = "TabBar"
+TabBar.Parent = ContentFrame
+TabBar.BackgroundColor3 = Color3.fromRGB(20, 16, 35)
+TabBar.BorderSizePixel = 0
+TabBar.Size = UDim2.new(1, 0, 0, 32)
 
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.Parent = ListScrolling
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-UIListLayout.Padding = UDim.new(0, 4)
+local TabListLayout = Instance.new("UIListLayout")
+TabListLayout.Parent = TabBar
+TabListLayout.FillDirection = Enum.FillDirection.Horizontal
+TabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 
--- Panel de Control / Métricas (Derecha)
-local ControlPanel = Instance.new("ScrollingFrame")
-ControlPanel.Name = "ControlPanel"
-ControlPanel.Parent = ContentFrame
-ControlPanel.BackgroundTransparency = 1
-ControlPanel.Position = UDim2.new(0, 300, 0, 10)
-ControlPanel.Size = UDim2.new(0, 170, 1, -20)
-ControlPanel.CanvasSize = UDim2.new(0, 0, 0, 0)
-ControlPanel.ScrollBarThickness = 3
+-- Paneles de Contenido (Vistas)
+local ViewsContainer = Instance.new("Frame")
+ViewsContainer.Name = "ViewsContainer"
+ViewsContainer.Parent = ContentFrame
+ViewsContainer.BackgroundTransparency = 1
+ViewsContainer.Position = UDim2.new(0, 0, 0, 32)
+ViewsContainer.Size = UDim2.new(1, 0, 1, -32)
 
-local UIListControl = Instance.new("UIListLayout")
-UIListControl.Parent = ControlPanel
-UIListControl.SortOrder = Enum.SortOrder.LayoutOrder
-UIListControl.Padding = UDim.new(0, 6)
+-- Vista 1: Dashboard y Controles
+local DashboardView = Instance.new("ScrollingFrame")
+DashboardView.Name = "DashboardView"
+DashboardView.Parent = ViewsContainer
+DashboardView.BackgroundTransparency = 1
+DashboardView.Size = UDim2.new(1, 0, 1, 0)
+DashboardView.CanvasSize = UDim2.new(0, 0, 0, 400)
+DashboardView.ScrollBarThickness = 5
+
+-- Vista 2: Lista de Todas las Interacciones / Búsqueda
+local AllListView = Instance.new("Frame")
+AllListView.Name = "AllListView"
+AllListView.Parent = ViewsContainer
+AllListView.BackgroundTransparency = 1
+AllListView.Size = UDim2.new(1, 0, 1, 0)
+AllListView.Visible = false
+
+-- Vista 3: Inspector de Objetos
+local InspectorView = Instance.new("ScrollingFrame")
+InspectorView.Name = "InspectorView"
+InspectorView.Parent = ViewsContainer
+InspectorView.BackgroundTransparency = 1
+InspectorView.Size = UDim2.new(1, 0, 1, 0)
+InspectorView.CanvasSize = UDim2.new(0, 0, 0, 450)
+InspectorView.ScrollBarThickness = 5
+InspectorView.Visible = false
 
 -- Barra Inferior de Estado
 local FooterBar = Instance.new("Frame")
@@ -185,278 +459,85 @@ local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Name = "StatusLabel"
 StatusLabel.Parent = FooterBar
 StatusLabel.BackgroundTransparency = 1
-StatusLabel.Position = UDim2.new(0, 12, 0, 0)
-StatusLabel.Size = UDim2.new(0, 180, 1, 0)
+StatusLabel.Position = UDim2.new(0, 15, 0, 0)
+StatusLabel.Size = UDim2.new(0, 300, 1, 0)
 StatusLabel.Font = Enum.Font.GothamBold
-StatusLabel.Text = "STATUS: [OFF]"
-StatusLabel.TextColor3 = Color3.fromRGB(231, 76, 60)
+StatusLabel.Text = "STATUS: LISTO [ESCANEO MANUAL]"
+StatusLabel.TextColor3 = Color3.fromRGB(50, 204, 113)
 StatusLabel.TextSize = 11
 StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 
-local StatsLabel = Instance.new("TextLabel")
-StatsLabel.Name = "StatsLabel"
-StatsLabel.Parent = FooterBar
-StatsLabel.BackgroundTransparency = 1
-StatsLabel.Position = UDim2.new(0, 190, 0, 0)
-StatsLabel.Size = UDim2.new(0, 275, 1, 0)
-StatsLabel.Font = Enum.Font.GothamBold
-StatsLabel.Text = "Found: 0 | Active: 0 | Excl: 0"
-StatsLabel.TextColor3 = Color3.fromRGB(180, 180, 220)
-StatsLabel.TextSize = 10
-StatsLabel.TextXAlignment = Enum.TextXAlignment.Right
-
 -- ==========================================
--- 2. FUNCIONES DE UI Y MÉTRICAS
+// SECCIÓN 8: CONSTRUCCIÓN DE COMPONENTES DE LA VISTA
 -- ==========================================
-local function UpdateStatsDisplay()
-    local activeCount = 0
-    for _, _ in pairs(interactionCooldowns) do
-        activeCount = activeCount + 1
-    end
-    activeInteractingCount = activeCount
-    StatsLabel.Text = string.format("Found: %d | Active: %d | Excl: %d", #detectedInteractions, activeInteractingCount, excludedCount)
-end
-
-local function ClearListUI()
-    for _, child in ipairs(ListScrolling:GetChildren()) do
-        if child:IsA("Frame") then
-            child:Destroy()
-        end
-    end
-end
-
-local function LogToList(name, category, statusColor)
-    pcall(function()
-        local itemFrame = Instance.new("Frame")
-        itemFrame.Parent = ListScrolling
-        itemFrame.BackgroundColor3 = Color3.fromRGB(20, 18, 32)
-        itemFrame.Size = UDim2.new(1, -6, 0, 30)
-        
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 4)
-        corner.Parent = itemFrame
-        
-        local dot = Instance.new("Frame")
-        dot.Parent = itemFrame
-        dot.BackgroundColor3 = statusColor or Color3.fromRGB(52, 152, 219)
-        dot.Position = UDim2.new(0, 6, 0.5, -4)
-        dot.Size = UDim2.new(0, 8, 0, 8)
-        local dotCorner = Instance.new("UICorner")
-        dotCorner.CornerRadius = UDim.new(1, 0)
-        dotCorner.Parent = dot
-        
-        local lbl = Instance.new("TextLabel")
-        lbl.Parent = itemFrame
-        lbl.BackgroundTransparency = 1
-        lbl.Position = UDim2.new(0, 20, 0, 0)
-        lbl.Size = UDim2.new(1, -22, 1, 0)
-        lbl.Font = Enum.Font.Code
-        lbl.Text = "["..category.."] " .. name
-        lbl.TextColor3 = Color3.fromRGB(210, 210, 210)
-        lbl.TextSize = 9
-        lbl.TextXAlignment = Enum.TextXAlignment.Left
-        
-        ListScrolling.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y + 10)
-    end)
-end
-
--- ==========================================
--- 3. MOTOR DE FILTRADO Y EXCLUSIONES INTELIGENTES
--- ==========================================
-local function ShouldExcludeInteraction(promptOrObject, parentModel)
-    local text = ""
-    if promptOrObject:IsA("ProximityPrompt") then
-        text = string.lower((promptOrObject.ActionText or "") .. " " .. (promptOrObject.ObjectText or ""))
-    end
-    
-    local name = string.lower(parentModel and parentModel.Name or promptOrObject.Name)
-    local fullName = string.lower(promptOrObject:GetFullName())
-
-    -- Criterio A: Brainrots propios de la base o recogida personal
-    if text:find("collect") or text:find("pickup") or text:find("recoger") or text:find("claim") or text:find("reclamar") then
-        if name:find("brainrot") or fullName:find("base") or fullName:find("plot") or fullName:find("inventory") then
-            return true
-        end
-    end
-
-    -- Criterio B: Brainrots de las pasarelas o tiendas de compra directa
-    if text:find("buy") or text:find("comprar") or text:find("purchase") then
-        if name:find("pedestal") or name:find("shop") or name:find("store") or fullName:find("runway") or fullName:find("pasarela") then
-            return true
-        end
-    end
-
-    return false
-end
-
--- ==========================================
--- 4. SISTEMA DE EJECUCIÓN Y ESCANEO SEGURO
--- ==========================================
-local function ExecuteInteraction(promptObj)
-    if not promptObj or not promptObj.Parent then return end
-    
-    local pathId = promptObj:GetFullName()
-    if interactionCooldowns[pathId] then return end
-    
-    interactionCooldowns[pathId] = true
-    
-    pcall(function()
-        if promptObj:IsA("ProximityPrompt") then
-            fireproximityprompt(promptObj)
-        elseif promptObj:IsA("ClickDetector") then
-            fireclickdetector(promptObj)
-        end
-    end)
-    
-    UpdateStatsDisplay()
-    
-    task.delay(getgenv().SAB_InteractConfig.CooldownTime, function()
-        interactionCooldowns[pathId] = nil
-        UpdateStatsDisplay()
-    end)
-end
-
-local function ScanAndInteract()
-    if not getgenv().SAB_InteractConfig.AutoInteractActive and not getgenv().SAB_InteractConfig.AutoScanActive then return end
-    
-    local foundList = {}
-    local newExcluded = 0
-    
-    pcall(function()
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            local isPrompt = obj:IsA("ProximityPrompt")
-            local isClick = obj:IsA("ClickDetector")
-            
-            if isPrompt or isClick then
-                local parentModel = obj.Parent
-                if ShouldExcludeInteraction(obj, parentModel) then
-                    newExcluded = newExcluded + 1
-                else
-                    table.insert(foundList, {
-                        Object = obj,
-                        Name = parentModel and parentModel.Name or obj.Name,
-                        Category = isPrompt and "Prompt (E)" or "Click" -- ¡CORREGIDO EL ERROR DE SINTAXIS!
-                    })
-                    
-                    if getgenv().SAB_InteractConfig.AutoInteractActive then
-                        ExecuteInteraction(obj)
-                    end
-                end
-            end
-        end
-    end)
-    
-    excludedCount = newExcluded
-    detectedInteractions = foundList
-    ClearListUI()
-    
-    for _, entry in ipairs(detectedInteractions) do
-        LogToList(entry.Name, entry.Category, Color3.fromRGB(46, 204, 113))
-    end
-    
-    UpdateStatsDisplay()
-end
-
--- ==========================================
--- 5. CREACIÓN DE CONTROLES EN LA GUI
--- ==========================================
-local function CreateToggleButton(name, defaultState, callback)
+-- Crear Pestañas de Navegación
+local function CreateTabButton(name, targetView)
     local btn = Instance.new("TextButton")
-    btn.Parent = ControlPanel
-    btn.BackgroundColor3 = defaultState and Color3.fromRGB(50, 130, 70) or Color3.fromRGB(120, 50, 50)
-    btn.Size = UDim2.new(1, 0, 0, 30)
-    btn.Font = Enum.Font.GothamBold
-    btn.Text = name .. ": " .. (defaultState and "ON" or "OFF")
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.TextSize = 10
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
-
-    local state = defaultState
-    btn.MouseButton1Click:Connect(function()
-        state = not state
-        btn.BackgroundColor3 = state and Color3.fromRGB(50, 130, 70) or Color3.fromRGB(120, 50, 50)
-        btn.Text = name .. ": " .. (state and "ON" or "OFF")
-        callback(state)
-    end)
-end
-
-local function CreateActionButton(name, callback)
-    local btn = Instance.new("TextButton")
-    btn.Parent = ControlPanel
-    btn.BackgroundColor3 = Color3.fromRGB(70, 40, 140)
-    btn.Size = UDim2.new(1, 0, 0, 30)
+    btn.Parent = TabBar
+    btn.BackgroundColor3 = Color3.fromRGB(25, 20, 40)
+    btn.BorderSizePixel = 0
+    btn.Size = UDim2.new(0, 120, 1, 0)
     btn.Font = Enum.Font.GothamBold
     btn.Text = name
-    btn.TextColor3 = Color3.fromRGB(230, 210, 255)
-    btn.TextSize = 10
+    btn.TextColor3 = Color3.fromRGB(180, 160, 220)
+    btn.TextSize = 11
+
+    btn.MouseButton1Click:Connect(function()
+        DashboardView.Visible = false
+        AllListView.Visible = false
+        InspectorView.Visible = false
+        targetView.Visible = true
+    end)
+end
+
+CreateTabButton("📊 Dashboard", DashboardView)
+CreateTabButton("📋 Interacciones", AllListView)
+CreateTabButton("🔍 Inspector", InspectorView)
+
+-- [Dashboard Components]
+local DashListLayout = Instance.new("UIListLayout")
+DashListLayout.Parent = DashboardView
+DashListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+DashListLayout.Padding = UDim.new(0, 10)
+
+local function CreateDashCard(title, initialValue)
+    local card = Instance.new("Frame")
+    card.Parent = DashboardView
+    card.BackgroundColor3 = Color3.fromRGB(22, 18, 38)
+    card.Size = UDim2.new(1, -20, 0, 50)
+    card.Position = UDim2.new(0, 10, 0, 0)
 
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = btn
+    corner.Parent = card
 
-    btn.MouseButton1Click:Connect(callback)
+    local lblTitle = Instance.new("TextLabel")
+    lblTitle.Parent = card
+    lblTitle.BackgroundTransparency = 1
+    lblTitle.Position = UDim2.new(0, 15, 0, 0)
+    lblTitle.Size = UDim2.new(0, 300, 1, 0)
+    lblTitle.Font = Enum.Font.GothamBold
+    lblTitle.Text = title
+    lblTitle.TextColor3 = Color3.fromRGB(200, 180, 240)
+    lblTitle.TextSize = 12
+    lblTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+    local lblVal = Instance.new("TextLabel")
+    lblVal.Name = "Value"
+    lblVal.Parent = card
+    lblVal.BackgroundTransparency = 1
+    lblVal.Position = UDim2.new(1, -150, 0, 0)
+    lblVal.Size = UDim2.new(0, 135, 1, 0)
+    lblVal.Font = Enum.Font.GothamBold
+    lblVal.Text = initialValue
+    lblVal.TextColor3 = Color3.fromRGB(50, 204, 113)
+    lblVal.TextSize = 13
+    lblVal.TextXAlignment = Enum.TextXAlignment.Right
+
+    return card
 end
 
--- Controles principales (Toggles sincronizados con estado real)
-CreateToggleButton("Auto Interact", false, function(state)
-    getgenv().SAB_InteractConfig.AutoInteractActive = state
-    StatusLabel.Text = state and "STATUS: [ACTIVE]" or "STATUS: [OFF]"
-    StatusLabel.TextColor3 = state and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(231, 76, 60)
-end)
-
-CreateToggleButton("Auto Scan", true, function(state)
-    getgenv().SAB_InteractConfig.AutoScanActive = state
-end)
-
-CreateActionButton("🔄 Scan Now", function()
-    ScanAndInteract()
-end)
-
-CreateActionButton("🧹 Clear List", function()
-    ClearListUI()
-    detectedInteractions = {}
-    UpdateStatsDisplay()
-end)
-
--- Ajustar tamaño del canvas del panel de control automáticamente
-ControlPanel.CanvasSize = UDim2.new(0, 0, 0, UIListControl.AbsoluteContentSize.Y + 20)
-
--- Botones Minimizar y Cerrar
-MinBtn.MouseButton1Click:Connect(function()
-    local isMin = ContentFrame.Visible
-    ContentFrame.Visible = not isMin
-    MainFrame.Size = isMin and UDim2.new(0, 480, 0, 38) or UDim2.new(0, 480, 0, 380)
-    MinBtn.Text = isMin and "+" or "-"
-end)
-
-CloseBtn.MouseButton1Click:Connect(function()
-    ScreenGui:Destroy()
-end)
-
--- ==========================================
--- 6. BUCLE PRINCIPAL EN SEGUNDO PLANO
--- ==========================================
-task.spawn(function()
-    while ScreenGui.Parent do
-        pcall(function()
-            if getgenv().SAB_InteractConfig.AutoScanActive or getgenv().SAB_InteractConfig.AutoInteractActive then
-                ScanAndInteract()
-            end
-        end)
-        task.wait(getgenv().SAB_InteractConfig.ScanInterval)
-    end
-end)
-
-_G.SAB_UniversalAutoInteract = {
-    Cleanup = function()
-        pcall(function()
-            ScreenGui:Destroy()
-        end)
-    end
-}
-
-ScanAndInteract()
-print("[SAB UNIVERSAL] Hub cargado con éxito en Delta Executor.")
+local cardTotal = CreateDashCard("Total Interacciones Detectadas:", "0")
+local cardEKey = CreateDashCard("Interacciones con Tecla [ E ]:", "0")
+local cardIdentified = CreateDashCard("Objetos Identificados:", "0")
+local cardUnknown = CreateDashCard("Objetos Desconocidos:
