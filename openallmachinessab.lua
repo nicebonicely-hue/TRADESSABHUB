@@ -1,8 +1,7 @@
 --[[
     ============================================================================
-    PROYECTO: SAB UNIVERSAL AUTO INTERACT E HUB
+    PROYECTO: SAB UNIVERSAL AUTO INTERACT E HUB [OPTIMIZADO Y CORREGIDO]
     Compatibilidad: Delta Executor / Luau (Roblox - Steal a Brainrot)
-    Autor: Asistente Experto Luau & Arquitectura Argon
     ============================================================================
 ]]--
 
@@ -16,18 +15,20 @@ end
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 5)
+
+-- Contenedor seguro compatible con Delta (gethui o CoreGui)
+local ProtectedGui = (gethui and gethui()) or CoreGui
 
 -- Configuración Global del Sistema
 getgenv().SAB_InteractConfig = {
     AutoInteractActive = false,
     AutoScanActive = true,
-    ScanInterval = 4,
-    CooldownTime = 3, -- Segundos de espera por interacción para evitar spam
+    ScanInterval = 3.5,
+    CooldownTime = 2.5, -- Segundos de espera por interacción para evitar spam/lag
     Notifications = true,
 }
 
@@ -35,35 +36,36 @@ local detectedInteractions = {}
 local excludedCount = 0
 local activeInteractingCount = 0
 local interactionCooldowns = {}
-local activeConnections = {}
 
--- ============================================================================
--- 1. CREACIÓN DE LA INTERFAZ GRÁFICA (SAB UNIVERSAL HUB)
--- ============================================================================
-if CoreGui:FindFirstChild("SABUniversalAutoInteractHub") then
-    CoreGui.SABUniversalAutoInteractHub:Destroy()
+-- Limpiar interfaz anterior si existe
+if ProtectedGui:FindFirstChild("SABUniversalAutoInteractHub") then
+    ProtectedGui.SABUniversalAutoInteractHub:Destroy()
 end
 
+-- ============================================================================
+-- 1. CREACIÓN DE LA INTERFAZ GRÁFICA ESCALABLE Y MODERNA
+-- ============================================================================
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "SABUniversalAutoInteractHub"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local successGui = pcall(function()
-    ScreenGui.Parent = CoreGui
+    ScreenGui.Parent = ProtectedGui
 end)
 if not successGui then
     ScreenGui.Parent = PlayerGui
 end
 
--- Ventana Principal
+-- Ventana Principal (Escalable y centrada)
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
 MainFrame.Parent = ScreenGui
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
 MainFrame.BorderColor3 = Color3.fromRGB(100, 50, 180)
 MainFrame.BorderSizePixel = 2
-MainFrame.Position = UDim2.new(0.5, -240, 0.5, -190)
+MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 MainFrame.Size = UDim2.new(0, 480, 0, 380)
 MainFrame.Active = true
 MainFrame.Draggable = true
@@ -91,12 +93,12 @@ TitleLabel.BackgroundTransparency = 1
 TitleLabel.Position = UDim2.new(0, 12, 0, 0)
 TitleLabel.Size = UDim2.new(0, 300, 1, 0)
 TitleLabel.Font = Enum.Font.GothamBold
-TitleLabel.Text = "SAB UNIVERSAL HUB [AUTO E]"
+TitleLabel.Text = "SAB UNIVERSAL HUB [PRO]"
 TitleLabel.TextColor3 = Color3.fromRGB(210, 170, 255)
 TitleLabel.TextSize = 13
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 
--- Botones de Ventana
+-- Botones de Ventana (Cerrar / Minimizar)
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Name = "CloseBtn"
 CloseBtn.Parent = Header
@@ -133,7 +135,7 @@ ContentFrame.Name = "ContentFrame"
 ContentFrame.Parent = MainFrame
 ContentFrame.BackgroundTransparency = 1
 ContentFrame.Position = UDim2.new(0, 0, 0, 38)
-ContentFrame.Size = UDim2.new(1, 0, 1, -38)
+ContentFrame.Size = UDim2.new(1, 0, 1, -73)
 
 -- Lista de Interacciones Detectadas (ScrollingFrame Izquierda)
 local ListScrolling = Instance.new("ScrollingFrame")
@@ -142,7 +144,7 @@ ListScrolling.Parent = ContentFrame
 ListScrolling.BackgroundColor3 = Color3.fromRGB(10, 10, 18)
 ListScrolling.BorderColor3 = Color3.fromRGB(50, 30, 90)
 ListScrolling.Position = UDim2.new(0, 10, 0, 10)
-ListScrolling.Size = UDim2.new(0, 280, 0, 275)
+ListScrolling.Size = UDim2.new(0, 280, 1, -20)
 ListScrolling.CanvasSize = UDim2.new(0, 0, 0, 0)
 ListScrolling.ScrollBarThickness = 5
 
@@ -152,12 +154,14 @@ UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 UIListLayout.Padding = UDim.new(0, 4)
 
 -- Panel de Control / Métricas (Derecha)
-local ControlPanel = Instance.new("Frame")
+local ControlPanel = Instance.new("ScrollingFrame")
 ControlPanel.Name = "ControlPanel"
 ControlPanel.Parent = ContentFrame
 ControlPanel.BackgroundTransparency = 1
 ControlPanel.Position = UDim2.new(0, 300, 0, 10)
-ControlPanel.Size = UDim2.new(0, 170, 0, 275)
+ControlPanel.Size = UDim2.new(0, 170, 1, -20)
+ControlPanel.CanvasSize = UDim2.new(0, 0, 0, 0)
+ControlPanel.ScrollBarThickness = 3
 
 local UIListControl = Instance.new("UIListLayout")
 UIListControl.Parent = ControlPanel
@@ -182,7 +186,7 @@ StatusLabel.Name = "StatusLabel"
 StatusLabel.Parent = FooterBar
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.Position = UDim2.new(0, 12, 0, 0)
-StatusLabel.Size = UDim2.new(0, 200, 1, 0)
+StatusLabel.Size = UDim2.new(0, 180, 1, 0)
 StatusLabel.Font = Enum.Font.GothamBold
 StatusLabel.Text = "STATUS: [OFF]"
 StatusLabel.TextColor3 = Color3.fromRGB(231, 76, 60)
@@ -193,8 +197,8 @@ local StatsLabel = Instance.new("TextLabel")
 StatsLabel.Name = "StatsLabel"
 StatsLabel.Parent = FooterBar
 StatsLabel.BackgroundTransparency = 1
-StatsLabel.Position = UDim2.new(0, 220, 0, 0)
-StatsLabel.Size = UDim2.new(0, 240, 1, 0)
+StatsLabel.Position = UDim2.new(0, 190, 0, 0)
+StatsLabel.Size = UDim2.new(0, 275, 1, 0)
 StatsLabel.Font = Enum.Font.GothamBold
 StatsLabel.Text = "Found: 0 | Active: 0 | Excl: 0"
 StatsLabel.TextColor3 = Color3.fromRGB(180, 180, 220)
@@ -202,7 +206,7 @@ StatsLabel.TextSize = 10
 StatsLabel.TextXAlignment = Enum.TextXAlignment.Right
 
 -- ==========================================
--- 2. FUNCIONES DE UI Y METRICAS
+-- 2. FUNCIONES DE UI Y MÉTRICAS
 -- ==========================================
 local function UpdateStatsDisplay()
     local activeCount = 0
@@ -213,12 +217,20 @@ local function UpdateStatsDisplay()
     StatsLabel.Text = string.format("Found: %d | Active: %d | Excl: %d", #detectedInteractions, activeInteractingCount, excludedCount)
 end
 
+local function ClearListUI()
+    for _, child in ipairs(ListScrolling:GetChildren()) do
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
+    end
+end
+
 local function LogToList(name, category, statusColor)
     pcall(function()
         local itemFrame = Instance.new("Frame")
         itemFrame.Parent = ListScrolling
         itemFrame.BackgroundColor3 = Color3.fromRGB(20, 18, 32)
-        itemFrame.Size = UDim2.new(1, -6, 0, 32)
+        itemFrame.Size = UDim2.new(1, -6, 0, 30)
         
         local corner = Instance.new("UICorner")
         corner.CornerRadius = UDim.new(0, 4)
@@ -248,14 +260,6 @@ local function LogToList(name, category, statusColor)
     end)
 end
 
-local function ClearListUI()
-    for _, child in ipairs(ListScrolling:GetChildren()) do
-        if child:IsA("Frame") then
-            child:Destroy()
-        end
-    end
-end
-
 -- ==========================================
 -- 3. MOTOR DE FILTRADO Y EXCLUSIONES INTELIGENTES
 -- ==========================================
@@ -271,35 +275,33 @@ local function ShouldExcludeInteraction(promptOrObject, parentModel)
     -- Criterio A: Brainrots propios de la base o recogida personal
     if text:find("collect") or text:find("pickup") or text:find("recoger") or text:find("claim") or text:find("reclamar") then
         if name:find("brainrot") or fullName:find("base") or fullName:find("plot") or fullName:find("inventory") then
-            return true, "Brainrot Propio / Base"
+            return true
         end
     end
 
     -- Criterio B: Brainrots de las pasarelas o tiendas de compra directa
     if text:find("buy") or text:find("comprar") or text:find("purchase") then
         if name:find("pedestal") or name:find("shop") or name:find("store") or fullName:find("runway") or fullName:find("pasarela") then
-            return true, "Pasarela / Tienda"
+            return true
         end
     end
 
-    return false, nil
+    return false
 end
 
 -- ==========================================
--- 4. SISTEMA DE ESCANEO Y AUTO INTERACT E
+-- 4. SISTEMA DE EJECUCIÓN Y ESCANEO SEGURO
 -- ==========================================
 local function ExecuteInteraction(promptObj)
     if not promptObj or not promptObj.Parent then return end
     
     local pathId = promptObj:GetFullName()
-    if interactionCooldowns[pathId] then return end -- En cooldown
+    if interactionCooldowns[pathId] then return end
     
-    -- Marcar cooldown
     interactionCooldowns[pathId] = true
     
     pcall(function()
         if promptObj:IsA("ProximityPrompt") then
-            -- Disparar evento de proximidad nativo (Tecla E)
             fireproximityprompt(promptObj)
         elseif promptObj:IsA("ClickDetector") then
             fireclickdetector(promptObj)
@@ -308,7 +310,6 @@ local function ExecuteInteraction(promptObj)
     
     UpdateStatsDisplay()
     
-    -- Liberar cooldown después del tiempo establecido
     task.delay(getgenv().SAB_InteractConfig.CooldownTime, function()
         interactionCooldowns[pathId] = nil
         UpdateStatsDisplay()
@@ -319,7 +320,7 @@ local function ScanAndInteract()
     if not getgenv().SAB_InteractConfig.AutoInteractActive and not getgenv().SAB_InteractConfig.AutoScanActive then return end
     
     local foundList = {}
-    excludedCount = 0
+    local newExcluded = 0
     
     pcall(function()
         for _, obj in ipairs(Workspace:GetDescendants()) do
@@ -328,18 +329,15 @@ local function ScanAndInteract()
             
             if isPrompt or isClick then
                 local parentModel = obj.Parent
-                local excluded, reason = ShouldExcludeInteraction(obj, parentModel)
-                
-                if excluded then
-                    excludedCount = excludedCount + 1
+                if ShouldExcludeInteraction(obj, parentModel) then
+                    newExcluded = newExcluded + 1
                 else
                     table.insert(foundList, {
                         Object = obj,
                         Name = parentModel and parentModel.Name or obj.Name,
-                        Category = isPrompt and "Prompt (E)" : "Click"
+                        Category = isPrompt and "Prompt (E)" or "Click" -- ¡CORREGIDO EL ERROR DE SINTAXIS!
                     })
                     
-                    -- Si Auto Interact All está encendido, ejecutar inmediatamente
                     if getgenv().SAB_InteractConfig.AutoInteractActive then
                         ExecuteInteraction(obj)
                     end
@@ -348,6 +346,7 @@ local function ScanAndInteract()
         end
     end)
     
+    excludedCount = newExcluded
     detectedInteractions = foundList
     ClearListUI()
     
@@ -365,7 +364,7 @@ local function CreateToggleButton(name, defaultState, callback)
     local btn = Instance.new("TextButton")
     btn.Parent = ControlPanel
     btn.BackgroundColor3 = defaultState and Color3.fromRGB(50, 130, 70) or Color3.fromRGB(120, 50, 50)
-    btn.Size = UDim2.new(1, 0, 0, 32)
+    btn.Size = UDim2.new(1, 0, 0, 30)
     btn.Font = Enum.Font.GothamBold
     btn.Text = name .. ": " .. (defaultState and "ON" or "OFF")
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -392,7 +391,7 @@ local function CreateActionButton(name, callback)
     btn.Font = Enum.Font.GothamBold
     btn.Text = name
     btn.TextColor3 = Color3.fromRGB(230, 210, 255)
-    btn.TextSize = 11
+    btn.TextSize = 10
 
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 6)
@@ -401,8 +400,8 @@ local function CreateActionButton(name, callback)
     btn.MouseButton1Click:Connect(callback)
 end
 
--- Controles principales
-CreateToggleButton("Auto Interact (E)", false, function(state)
+-- Controles principales (Toggles sincronizados con estado real)
+CreateToggleButton("Auto Interact", false, function(state)
     getgenv().SAB_InteractConfig.AutoInteractActive = state
     StatusLabel.Text = state and "STATUS: [ACTIVE]" or "STATUS: [OFF]"
     StatusLabel.TextColor3 = state and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(231, 76, 60)
@@ -412,7 +411,7 @@ CreateToggleButton("Auto Scan", true, function(state)
     getgenv().SAB_InteractConfig.AutoScanActive = state
 end)
 
-CreateActionButton("🔄 Scan All Now", function()
+CreateActionButton("🔄 Scan Now", function()
     ScanAndInteract()
 end)
 
@@ -421,6 +420,9 @@ CreateActionButton("🧹 Clear List", function()
     detectedInteractions = {}
     UpdateStatsDisplay()
 end)
+
+-- Ajustar tamaño del canvas del panel de control automáticamente
+ControlPanel.CanvasSize = UDim2.new(0, 0, 0, UIListControl.AbsoluteContentSize.Y + 20)
 
 -- Botones Minimizar y Cerrar
 MinBtn.MouseButton1Click:Connect(function()
@@ -435,9 +437,9 @@ CloseBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ==========================================
--- 6. BUCLE PRINCIPAL DE EJECUCIÓN (BACKGROUND LOOP)
+-- 6. BUCLE PRINCIPAL EN SEGUNDO PLANO
 -- ==========================================
-local loopCoroutine = task.spawn(function()
+task.spawn(function()
     while ScreenGui.Parent do
         pcall(function()
             if getgenv().SAB_InteractConfig.AutoScanActive or getgenv().SAB_InteractConfig.AutoInteractActive then
