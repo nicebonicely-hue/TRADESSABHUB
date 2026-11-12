@@ -1,10 +1,10 @@
 --[[ 
-    Steal a Brainrot | SAB Hub | GUI + Scanner + Freeze + Verified AutoBuy
-    Scanner con eventos + reconciliacion periodica + confirmacion de compra
+    Steal a Brainrot | SAB Hub | GUI + Scanner + Freeze + Verified AutoBuy + Anti-Ragdoll + Fast Prompts
+    Versión Completa Optimizada y Corregida desde Cero
 ]]
 
 -- =========================================
--- LIMPIEZA
+-- LIMPIEZA PREVIA
 -- =========================================
 
 if _G.SAB then
@@ -17,15 +17,17 @@ local Players = game:GetService("Players")
 local lp = Players.LocalPlayer
 
 local CFG = {
-    delay = 0.05,          -- Ajustado a 0.05s (menos de 0.10s)
+    delay = 0.05,          
     scanDelay = 1.2,
-    verifyTimeout = 0.35,  -- Reducido para no demorar entre intentos
-    promptCooldown = 0.45, -- Reducido para reintentar mas rapido
+    verifyTimeout = 0.35,  
+    promptCooldown = 0.45, 
 
     teleport = true,
     autoBuy = false,
     freeze = false,
     lockHP = true,
+    antiRagdoll = false,   
+    fastPrompts = false,   
 
     selected = {},
 }
@@ -40,7 +42,7 @@ local freezeState = nil
 local scheduleScan
 
 local st
-local btnBuy, btnFreeze, btnTp
+local btnBuy, btnFreeze, btnTp, btnAntiRagdoll, btnFastPrompts
 
 local scannerAlive = true
 local scanQueued = false
@@ -144,7 +146,6 @@ local function ancestorName(prompt)
         node = node.Parent
     end
 
-    -- 1. Atributos conocidos
     for _, current in ipairs(nodes) do
         for _, attribute in ipairs(NAME_ATTRIBUTES) do
             local value = cleanName(current:GetAttribute(attribute))
@@ -154,7 +155,6 @@ local function ancestorName(prompt)
         end
     end
 
-    -- 2. Otros atributos de texto
     for _, current in ipairs(nodes) do
         local attributes = current:GetAttributes()
         for _, value in pairs(attributes) do
@@ -165,13 +165,11 @@ local function ancestorName(prompt)
         end
     end
 
-    -- 3. ObjectText del prompt
     local objectText = cleanName(prompt.ObjectText)
     if objectText then
         return objectText
     end
 
-    -- 4. Nombres de modelos
     for _, current in ipairs(nodes) do
         if current:IsA("Model") then
             local value = cleanName(current.Name)
@@ -181,7 +179,6 @@ local function ancestorName(prompt)
         end
     end
 
-    -- 5. Ultimo recurso: nombre de algun antecesor
     for _, current in ipairs(nodes) do
         local value = cleanName(current.Name)
         if value then
@@ -402,12 +399,10 @@ local function getBackpackCount()
     return count
 end
 
--- Verifica señales reales de que el servidor proceso la compra
 local function verifyPurchase(prompt, initialParent, initialCurrency, initialItems, timeout)
     local start = os.clock()
 
     while os.clock() - start < timeout do
-        -- Señal 1: El prompt fue eliminado, deshabilitado o el modelo cambio de contenedor
         if not prompt or not prompt.Parent or not prompt:IsDescendantOf(workspace) then
             return true, "Prompt consumido"
         end
@@ -418,14 +413,12 @@ local function verifyPurchase(prompt, initialParent, initialCurrency, initialIte
             return true, "Objeto movido"
         end
 
-        -- Señal 2: El dinero del jugador disminuyo (transaccion aceptada)
         for stat, oldVal in pairs(initialCurrency) do
             if stat and stat.Parent and stat.Value < oldVal then
                 return true, "Saldo descontado"
             end
         end
 
-        -- Señal 3: Entro una herramienta/item nuevo al inventario
         if getBackpackCount() > initialItems then
             return true, "Item en inventario"
         end
@@ -442,7 +435,6 @@ local function triggerPrompt(prompt)
         if ok then return true end
     end
 
-    -- Fallback en caso de que fireproximityprompt requiera argumento o InputHoldBegin
     local ok = pcall(function()
         prompt:InputHoldBegin()
         task.wait(0.03)
@@ -468,7 +460,6 @@ local function tryBuy(entry)
         return false
     end
 
-    -- Estado previo antes de comprar para comparar confirmacion
     local initialParent = prompt.Parent
     local initialCurrency = getCurrencySnapshot()
     local initialItems = getBackpackCount()
@@ -492,7 +483,6 @@ local function tryBuy(entry)
         task.wait(0.08)
     end
 
-    -- Verificar que el prompt sigue valido tras el teletransporte
     if not prompt or not prompt.Parent or not prompt.Enabled then
         if teleported and hrp and hrp.Parent and savedCFrame then
             hrp.CFrame = savedCFrame
@@ -508,9 +498,8 @@ local function tryBuy(entry)
 
     local firedOk = triggerPrompt(prompt)
 
-    -- Confirmar si el servidor realmente registro la compra
     local confirmed, reason = false, "Error al disparar prompt"
-    if firedOk then
+        if firedOk then
         confirmed, reason = verifyPurchase(
             prompt,
             initialParent,
@@ -520,7 +509,6 @@ local function tryBuy(entry)
         )
     end
 
-    -- Restaurar HoldDuration si el prompt sigue existiendo
     if prompt and prompt.Parent then
         pcall(function()
             prompt.HoldDuration = originalHold
@@ -564,7 +552,7 @@ gui.Parent = parent
 _G.SAB = gui
 
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 270, 0, 410)
+main.Size = UDim2.new(0, 270, 0, 470)
 main.Position = UDim2.new(0, 20, 0, 80)
 main.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
 main.BorderSizePixel = 0
@@ -621,7 +609,7 @@ end
 
 local search = Instance.new("TextBox")
 search.Size = UDim2.new(1, -20, 0, 26)
-search.Position = UDim2.new(0, 10, 0, 156)
+search.Position = UDim2.new(0, 10, 0, 224)
 search.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
 search.BorderSizePixel = 0
 search.PlaceholderText = "buscar brainrot..."
@@ -635,8 +623,8 @@ search.Parent = main
 Instance.new("UICorner", search).CornerRadius = UDim.new(0, 6)
 
 local scroll = Instance.new("ScrollingFrame")
-scroll.Size = UDim2.new(1, -20, 1, -192)
-scroll.Position = UDim2.new(0, 10, 0, 186)
+scroll.Size = UDim2.new(1, -20, 1, -260)
+scroll.Position = UDim2.new(0, 10, 0, 254)
 scroll.BackgroundTransparency = 1
 scroll.BorderSizePixel = 0
 scroll.ScrollBarThickness = 4
@@ -790,6 +778,8 @@ local function updateButtons()
     update(btnBuy, "AutoBuy", CFG.autoBuy, Color3.fromRGB(35, 130, 70))
     update(btnFreeze, "Freeze", CFG.freeze, Color3.fromRGB(35, 110, 150))
     update(btnTp, "Teletransporte", CFG.teleport, Color3.fromRGB(100, 90, 160))
+    update(btnAntiRagdoll, "Anti-Ragdoll", CFG.antiRagdoll, Color3.fromRGB(150, 90, 35))
+    update(btnFastPrompts, "Fast Prompts", CFG.fastPrompts, Color3.fromRGB(110, 50, 160))
 end
 
 btnBuy = mkButton("AutoBuy: OFF", 54, Color3.fromRGB(60, 60, 70), function()
@@ -814,6 +804,18 @@ btnTp = mkButton("Teletransporte: ON", 122, Color3.fromRGB(60, 60, 70), function
     CFG.teleport = not CFG.teleport
     updateButtons()
     toast(CFG.teleport and "Teletransporte activado" or "Teletransporte desactivado")
+end)
+
+btnAntiRagdoll = mkButton("Anti-Ragdoll: OFF", 156, Color3.fromRGB(60, 60, 70), function()
+    CFG.antiRagdoll = not CFG.antiRagdoll
+    updateButtons()
+    toast(CFG.antiRagdoll and "Anti-Ragdoll activado" or "Anti-Ragdoll desactivado")
+end)
+
+btnFastPrompts = mkButton("Fast Prompts: OFF", 190, Color3.fromRGB(60, 60, 70), function()
+    CFG.fastPrompts = not CFG.fastPrompts
+    updateButtons()
+    toast(CFG.fastPrompts and "Fast Prompts activado (0.1s)" or "Fast Prompts desactivado")
 end)
 
 -- =========================================
@@ -965,7 +967,6 @@ gui.Destroying:Connect(cleanupScanner)
 -- LOOPS PRINCIPALES
 -- =========================================
 
--- Loop de reconciliacion periodica
 task.spawn(function()
     while scannerAlive and gui.Parent do
         task.wait(CFG.scanDelay)
@@ -978,7 +979,6 @@ task.spawn(function()
     end
 end)
 
--- Loop AutoBuy con delay directo de 0.05s sin tope minimo
 task.spawn(function()
     while scannerAlive and gui.Parent do
         task.wait(CFG.delay)
@@ -1000,7 +1000,7 @@ task.spawn(function()
 
                     if prompt and prompt.Parent and prompt.Enabled and ready then
                         tryBuy(entry)
-                        task.wait(CFG.delay)
+                                                    task.wait(CFG.delay)
                     end
                 end
             end
@@ -1011,12 +1011,76 @@ task.spawn(function()
     end
 end)
 
--- Loop Freeze
 task.spawn(function()
     while scannerAlive and gui.Parent do
         task.wait(0.15)
         if CFG.freeze then
             pcall(applyFreeze)
+        end
+    end
+end)
+
+-- Loop Anti-Ragdoll Definitivo (Con reactivación de W, A, S, D y movimiento continuo)
+task.spawn(function()
+    while scannerAlive and gui.Parent do
+        task.wait(0.05)
+        if CFG.antiRagdoll then
+            pcall(function()
+                local char = lp.Character
+                if not char then return end
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if not hum or not hrp or hum.Health <= 0 then return end
+
+                local state = hum:GetState()
+                if state == Enum.HumanoidStateType.Physics or state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.FallingDown or state == Enum.HumanoidStateType.PlatformStanding then
+                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                    hrp.Velocity = Vector3.zero
+                    hrp.RotVelocity = Vector3.zero
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                    
+                    for _, desc in ipairs(char:GetDescendants()) do
+                        if desc:IsA("Motor6D") or desc:IsA("Weld") then
+                            desc.Enabled = true
+                        end
+                    end
+                    
+                    hum.AutoRotate = true
+                    hum.PlatformStand = false
+                    hum.Sit = false
+
+                    if hum.WalkSpeed < 1 then
+                        hum.WalkSpeed = 16
+                    end
+
+                    local playerScripts = lp:FindFirstChild("PlayerScripts")
+                    if playerScripts then
+                        local playerModule = playerScripts:FindFirstChild("PlayerModule")
+                        if playerModule then
+                            local controls = require(playerModule):GetControls()
+                            if controls then
+                                controls:Enable()
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+task.spawn(function()
+    while scannerAlive and gui.Parent do
+        task.wait(0.1)
+        if CFG.fastPrompts then
+            pcall(function()
+                for _, prompt in pairs(workspace:GetDescendants()) do
+                    if prompt:IsA("ProximityPrompt") then
+                        prompt.HoldDuration = 0
+                    end
+                end
+            end)
         end
     end
 end)
