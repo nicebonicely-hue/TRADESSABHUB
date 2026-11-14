@@ -71,6 +71,7 @@ local GENERIC = {
     workspace = true,
     folder = true,
     proximitypromptpart = true,
+    warning = true,
 }
 
 local NAME_ATTRIBUTES = {
@@ -106,7 +107,7 @@ local function cleanName(value)
 
     local lower = value:lower()
 
-    if GENERIC[lower] then
+    if GENERIC[lower] or lower:find("warning", 1, true) then
         return nil
     end
 
@@ -507,8 +508,8 @@ local function tryBuy(entry)
 
     local confirmed, reason = false, "Error al disparar prompt"
     if firedOk then
-        confirmed, reason = verifyPurchase(
-                        prompt,
+                confirmed, reason = verifyPurchase(
+            prompt,
             initialParent,
             initialCurrency,
             initialItems,
@@ -997,8 +998,8 @@ task.spawn(function()
 
             for _, entry in ipairs(queue) do
                 if not CFG.autoBuy or not scannerAlive or not gui.Parent then
-                    break
-                                        end
+                                            break
+                end
 
                 if CFG.selected[entry.key] == true then
                     local prompt = entry.prompt
