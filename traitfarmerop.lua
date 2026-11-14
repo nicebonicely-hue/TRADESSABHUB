@@ -71,6 +71,7 @@ local GENERIC = {
     workspace = true,
     folder = true,
     proximitypromptpart = true,
+    warning = true,
 }
 
 local NAME_ATTRIBUTES = {
@@ -106,7 +107,7 @@ local function cleanName(value)
 
     local lower = value:lower()
 
-    if GENERIC[lower] then
+    if GENERIC[lower] or lower:find("warning", 1, true) then
         return nil
     end
 
@@ -130,14 +131,16 @@ local function cleanName(value)
 end
 
 -- =========================================
--- IDENTIFICACION DE NOMBRES
+-- IDENTIFICACION DE NOMBRES (CORREGIDO Y BLINDADO)
 -- =========================================
 
 local function ancestorName(prompt)
+    if not prompt or not prompt.Parent then return nil end
+    
     local nodes = {}
     local node = prompt.Parent
 
-    for i = 1, 10 do
+    for i = 1, 12 do
         if not node then
             break
         end
@@ -146,43 +149,39 @@ local function ancestorName(prompt)
         node = node.Parent
     end
 
+    -- Búsqueda blindada por pcall en atributos actuales del servidor de Sammy
     for _, current in ipairs(nodes) do
-        for _, attribute in ipairs(NAME_ATTRIBUTES) do
-            local value = cleanName(current:GetAttribute(attribute))
-            if value then
-                return value
+        local okAttrs, attrs = pcall(function() return current:GetAttributes() end)
+        if okAttrs and attrs then
+            for _, attribute in ipairs(NAME_ATTRIBUTES) do
+                local value = cleanName(attrs[attribute])
+                if value then
+                    return value
+                end
+            end
+            for _, value in pairs(attrs) do
+                local cleaned = cleanName(value)
+                if cleaned then
+                    return cleaned
+                end
             end
         end
     end
 
-    for _, current in ipairs(nodes) do
-        local attributes = current:GetAttributes()
-        for _, value in pairs(attributes) do
-            local cleaned = cleanName(value)
-            if cleaned then
-                return cleaned
-            end
-        end
-    end
-
-    local objectText = cleanName(prompt.ObjectText)
-    if objectText then
+    local okText, objectText = pcall(function() return cleanName(prompt.ObjectText) end)
+    if okText and objectText then
         return objectText
     end
 
     for _, current in ipairs(nodes) do
-        if current:IsA("Model") then
-            local value = cleanName(current.Name)
-            if value then
-                return value
+        local okModel, nameVal = pcall(function()
+            if current:IsA("Model") or current:IsA("BasePart") then
+                return cleanName(current.Name)
             end
-        end
-    end
-
-    for _, current in ipairs(nodes) do
-        local value = cleanName(current.Name)
-        if value then
-            return value
+            return nil
+        end)
+        if okModel and nameVal then
+            return nameVal
         end
     end
 
@@ -190,25 +189,34 @@ local function ancestorName(prompt)
 end
 
 local function isBuyPrompt(prompt)
-    local action = tostring(prompt.ActionText or ""):lower()
-    local object = tostring(prompt.ObjectText or ""):lower()
-    local combined = action .. " " .. object
+    local ok, result = pcall(function()
+        local action = tostring(prompt.ActionText or ""):lower()
+        local object = tostring(prompt.ObjectText or ""):lower()
+        local combined = action .. " " .. object
 
-    return combined:find("buy", 1, true) ~= nil
-        or combined:find("purchase", 1, true) ~= nil
-        or combined:find("comprar", 1, true) ~= nil
+        return combined:find("buy", 1, true) ~= nil
+            or combined:find("purchase", 1, true) ~= nil
+            or combined:find("comprar", 1, true) ~= nil
+    end)
+    return ok and result
 end
 
 -- =========================================
--- ESCANEO
+-- ESCANEO (CORREGIDO Y BLINDADO)
 -- =========================================
 
 local function scanPrompts()
     local entries = {}
     local activePrompts = {}
 
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") then
+    local success, descendants = pcall(function() return workspace:GetDescendants() end)
+    if not success or not descendants then
+        return entries, activePrompts
+    end
+
+    for _, obj in ipairs(descendants) do
+        local isPrompt = pcall(function() return obj:IsA("ProximityPrompt") end)
+        if isPrompt and obj:IsA("ProximityPrompt") then
             activePrompts[obj] = true
 
             if isBuyPrompt(obj) then
@@ -499,8 +507,8 @@ local function tryBuy(entry)
     local firedOk = triggerPrompt(prompt)
 
     local confirmed, reason = false, "Error al disparar prompt"
-        if firedOk then
-        confirmed, reason = verifyPurchase(
+    if firedOk then
+                        confirmed, reason = verifyPurchase(
             prompt,
             initialParent,
             initialCurrency,
@@ -990,7 +998,7 @@ task.spawn(function()
 
             for _, entry in ipairs(queue) do
                 if not CFG.autoBuy or not scannerAlive or not gui.Parent then
-                    break
+                                                                    break
                 end
 
                 if CFG.selected[entry.key] == true then
@@ -1000,7 +1008,7 @@ task.spawn(function()
 
                     if prompt and prompt.Parent and prompt.Enabled and ready then
                         tryBuy(entry)
-                                                    task.wait(CFG.delay)
+                        task.wait(CFG.delay)
                     end
                 end
             end
