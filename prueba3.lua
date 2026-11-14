@@ -1,11 +1,7 @@
 --[[ 
-    Steal a Brainrot | SAB Hub | GUI + Scanner + Freeze + Verified AutoBuy + Anti-Ragdoll + Fast Prompts
-    Versión Completa Optimizada y Corregida (Actualización Pasarela / Runway / Sammy Fix)
+    Steal a Brainrot | SAB Hub | Escáner de Pasarela y Servidor Constante
+    Versión Definitiva Optimizada y Corregida (Solo Brainrots de Pasarela)
 ]]
-
--- =========================================
--- LIMPIEZA PREVIA
--- =========================================
 
 if _G.SAB then
     pcall(function()
@@ -53,10 +49,6 @@ local stats = {
     confirmed = 0,
 }
 
--- =========================================
--- UTILIDADES Y FILTROS AMPLIADOS (SAMMY FIX)
--- =========================================
-
 local GENERIC = {
     part = true,
     model = true,
@@ -74,6 +66,7 @@ local GENERIC = {
     runway = true,
     display = true,
     item = true,
+    shop = true,
 }
 
 local NAME_ATTRIBUTES = {
@@ -83,7 +76,6 @@ local NAME_ATTRIBUTES = {
     "UnitName",
     "PetName",
     "Title",
-    "Name",
     "Brainrot",
     "SkinName",
     "CharacterName",
@@ -137,10 +129,6 @@ local function cleanName(value)
     return value
 end
 
--- =========================================
--- IDENTIFICACION DE NOMBRES (ACTUALIZADO PASARELA)
--- =========================================
-
 local function ancestorName(prompt)
     local nodes = {}
     local node = prompt.Parent
@@ -154,7 +142,7 @@ local function ancestorName(prompt)
         node = node.Parent
     end
 
-    -- 1. Buscar en atributos específicos de los ancestros o el prompt
+    -- 1. Buscar en atributos del prompt o sus ancestros directos
     for _, current in ipairs(nodes) do
         for _, attribute in ipairs(NAME_ATTRIBUTES) do
             local value = cleanName(current:GetAttribute(attribute))
@@ -164,49 +152,19 @@ local function ancestorName(prompt)
         end
     end
 
-    -- 2. Buscar en todos los atributos generales del modelo/parte contenedora
-    for _, current in ipairs(nodes) do
-        local attributes = current:GetAttributes()
-        for _, value in pairs(attributes) do
-            local cleaned = cleanName(value)
-            if cleaned then
-                return cleaned
-            end
-        end
-    end
-
-    -- 3. Revisar si hay un TextLabel o BillboardGui hijo en el modelo de la pasarela que muestre el nombre del Brainrot
-    for _, current in ipairs(nodes) do
-        for _, desc in ipairs(current:GetDescendants()) do
-            if desc:IsA("TextLabel") or desc:IsA("TextBox") then
-                local txt = cleanName(desc.Text)
-                if txt and not txt:match("^%$?[%d%.,]+$") then
-                    return txt
-                end
-            end
-        end
-    end
-
-    -- 4. Revisar ObjectText del propio prompt
+    -- 2. Buscar en ObjectText del ProximityPrompt
     local objectText = cleanName(prompt.ObjectText)
     if objectText then
         return objectText
     end
 
-    -- 5. Revisar nombres de modelos o partes principales (ignorando genéricos)
+    -- 3. Buscar en Modelos de la pasarela
     for _, current in ipairs(nodes) do
         if current:IsA("Model") then
             local value = cleanName(current.Name)
             if value then
                 return value
             end
-        end
-    end
-
-    for _, current in ipairs(nodes) do
-        local value = cleanName(current.Name)
-        if value then
-            return value
         end
     end
 
@@ -218,25 +176,28 @@ local function isBuyPrompt(prompt)
     local object = tostring(prompt.ObjectText or ""):lower()
     local combined = action .. " " .. object
 
+    -- Estrictamente debe ser un prompt de compra o pasarela activa
     return combined:find("buy", 1, true) ~= nil
         or combined:find("purchase", 1, true) ~= nil
         or combined:find("comprar", 1, true) ~= nil
-        or action ~= "" -- Si hay acción en prompts de pasarela/tienda de Sammy, considerarlo válido si no está vacío
 end
-
--- =========================================
--- ESCANEO OPTIMIZADO (PASARELA & WORKSPACE)
--- =========================================
 
 local function scanPrompts()
     local entries = {}
     local activePrompts = {}
 
-    -- Escanear Workspace completo y contenedores especiales si existen
-    local searchContainers = {workspace}
-    local activeRunways = workspace:FindFirstChild("Runways") or workspace:FindFirstChild("Pasarelas") or workspace:FindFirstChild("Shop") or workspace:FindFirstChild("Brainrots")
-    if activeRunways then
-        table.insert(searchContainers, activeRunways)
+    -- Contenedores específicos donde Sammy aloja las pasarelas y brainrots en ejecución
+    local searchContainers = {}
+    for _, child in ipairs(workspace:GetChildren()) do
+        local nameLower = child.Name:lower()
+        if nameLower:find("runway") or nameLower:find("pasarela") or nameLower:find("shop") or nameLower:find("brainrot") or nameLower:find("pedestal") or nameLower:find("store") or nameLower:find("spawn") then
+            table.insert(searchContainers, child)
+        end
+    end
+
+    -- Si no encuentra carpetas específicas, busca en Workspace de forma controlada
+    if #searchContainers == 0 then
+        table.insert(searchContainers, workspace)
     end
 
     for _, container in ipairs(searchContainers) do
@@ -295,10 +256,6 @@ local function getPromptPosition(prompt)
     return nil
 end
 
--- =========================================
--- MENSAJES Y ESTADO
--- =========================================
-
 local function toast(message)
     if st then
         st.Text = message
@@ -306,38 +263,25 @@ local function toast(message)
     print("[SAB] " .. message)
 end
 
--- =========================================
--- FREEZE
--- =========================================
-
 local function applyFreeze()
     local char = lp.Character
-    if not char then
-        return
-    end
-
+    if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
     local hrp = char:FindFirstChild("HumanoidRootPart")
-
-    if not hum and not hrp then
-        return
-    end
+    if not hum and not hrp then return end
 
     if not freezeState or freezeState.character ~= char then
         freezeState = {
             character = char,
             humanoid = hum,
             root = hrp,
-
             walkSpeed = hum and hum.WalkSpeed,
             jumpPower = hum and hum.JumpPower,
             jumpHeight = hum and hum.JumpHeight,
             autoRotate = hum and hum.AutoRotate,
             platformStand = hum and hum.PlatformStand,
-
             maxHealth = hum and hum.MaxHealth,
             health = hum and hum.Health,
-
             anchored = hrp and hrp.Anchored,
         }
     end
@@ -348,7 +292,6 @@ local function applyFreeze()
         hum.JumpHeight = 0
         hum.AutoRotate = false
         hum.PlatformStand = true
-
         if CFG.lockHP then
             hum.MaxHealth = math.huge
             hum.Health = math.huge
@@ -362,10 +305,7 @@ end
 
 local function clearFreeze()
     local state = freezeState
-    if not state then
-        return
-    end
-
+    if not state then return end
     local hum = state.humanoid
     local hrp = state.root
 
@@ -376,9 +316,7 @@ local function clearFreeze()
         if state.autoRotate ~= nil then hum.AutoRotate = state.autoRotate end
         if state.platformStand ~= nil then hum.PlatformStand = state.platformStand end
         if state.maxHealth ~= nil then hum.MaxHealth = state.maxHealth end
-        if state.health ~= nil then
-            hum.Health = math.min(state.health, hum.MaxHealth)
-        end
+        if state.health ~= nil then hum.Health = math.min(state.health, hum.MaxHealth) end
     end
 
     if hrp and hrp.Parent then
@@ -391,14 +329,8 @@ end
 lp.CharacterAdded:Connect(function()
     freezeState = nil
     task.wait(1)
-    if CFG.freeze then
-        applyFreeze()
-    end
+    if CFG.freeze then applyFreeze() end
 end)
-
--- =========================================
--- SISTEMA DE CONFIRMACION Y AUTOBUY
--- =========================================
 
 local function getCurrencySnapshot()
     local snapshot = {}
@@ -425,9 +357,7 @@ local function getBackpackCount()
     local count = bp and #bp:GetChildren() or 0
     if char then
         for _, child in ipairs(char:GetChildren()) do
-            if child:IsA("Tool") then
-                count = count + 1
-            end
+            if child:IsA("Tool") then count = count + 1 end
         end
     end
     return count
@@ -435,7 +365,6 @@ end
 
 local function verifyPurchase(prompt, initialParent, initialCurrency, initialItems, timeout)
     local start = os.clock()
-
     while os.clock() - start < timeout do
         if not prompt or not prompt.Parent or not prompt:IsDescendantOf(workspace) then
             return true, "Prompt consumido"
@@ -446,20 +375,16 @@ local function verifyPurchase(prompt, initialParent, initialCurrency, initialIte
         if prompt.Parent ~= initialParent then
             return true, "Objeto movido"
         end
-
         for stat, oldVal in pairs(initialCurrency) do
             if stat and stat.Parent and stat.Value < oldVal then
                 return true, "Saldo descontado"
             end
         end
-
         if getBackpackCount() > initialItems then
             return true, "Item en inventario"
         end
-
         task.wait(0.03)
     end
-
     return false, "Sin respuesta del servidor"
 end
 
@@ -468,7 +393,6 @@ local function triggerPrompt(prompt)
         local ok = pcall(fireproximityprompt, prompt)
         if ok then return true end
     end
-
     local ok = pcall(function()
         prompt:InputHoldBegin()
         task.wait(0.03)
@@ -479,20 +403,14 @@ end
 
 local function tryBuy(entry)
     local prompt = entry.prompt
-    if not prompt or not prompt.Parent or not prompt.Enabled then
-        return false
-    end
+    if not prompt or not prompt.Parent or not prompt.Enabled then return false end
 
     local now = os.clock()
-    if promptCooldowns[prompt] and (now - promptCooldowns[prompt]) < CFG.promptCooldown then
-        return false
-    end
+    if promptCooldowns[prompt] and (now - promptCooldowns[prompt]) < CFG.promptCooldown then return false end
 
     local char = lp.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        return false
-    end
+    if not hrp then return false end
 
     local initialParent = prompt.Parent
     local initialCurrency = getCurrencySnapshot()
@@ -500,17 +418,14 @@ local function tryBuy(entry)
     local originalHold = prompt.HoldDuration
 
     local savedCFrame = nil
-      local teleported = false
+    local teleported = false
 
     promptCooldowns[prompt] = now
     stats.attempts = stats.attempts + 1
 
     if CFG.teleport and not CFG.freeze then
         local targetPosition = getPromptPosition(prompt)
-        if not targetPosition then
-            return false
-        end
-
+        if not targetPosition then return false end
         savedCFrame = hrp.CFrame
         hrp.CFrame = CFrame.new(targetPosition + Vector3.new(0, 3, 0))
         teleported = true
@@ -518,35 +433,22 @@ local function tryBuy(entry)
     end
 
     if not prompt or not prompt.Parent or not prompt.Enabled then
-        if teleported and hrp and hrp.Parent and savedCFrame then
-            hrp.CFrame = savedCFrame
-        end
+        if teleported and hrp and hrp.Parent and savedCFrame then hrp.CFrame = savedCFrame end
         return false
     end
 
-    toast("Intentando: " .. entry.name)
+    toast("Comprando: " .. entry.name)
 
-    pcall(function()
-        prompt.HoldDuration = 0
-    end)
-
+    pcall(function() prompt.HoldDuration = 0 end)
     local firedOk = triggerPrompt(prompt)
 
-    local confirmed, reason = false, "Error al disparar prompt"
+    local confirmed, reason = false, "Error al disparar"
     if firedOk then
-        confirmed, reason = verifyPurchase(
-            prompt,
-            initialParent,
-            initialCurrency,
-            initialItems,
-            CFG.verifyTimeout
-        )
+        confirmed, reason = verifyPurchase(prompt, initialParent, initialCurrency, initialItems, CFG.verifyTimeout)
     end
 
     if prompt and prompt.Parent then
-        pcall(function()
-            prompt.HoldDuration = originalHold
-        end)
+        pcall(function() prompt.HoldDuration = originalHold end)
     end
 
     if teleported and hrp and hrp.Parent and savedCFrame then
@@ -555,30 +457,24 @@ local function tryBuy(entry)
 
     if confirmed then
         stats.confirmed = stats.confirmed + 1
-        toast(string.format("Confirmado: %s (%s)", entry.name, reason))
+        toast(string.format("¡Comprado!: %s (%s)", entry.name, reason))
         scheduleScan()
         return true
     else
-        toast(string.format("No confirmado: %s", entry.name))
+        toast(string.format("Fallido: %s", entry.name))
         return false
     end
 end
 
--- =========================================
--- GUI
--- =========================================
-
 local parent
 if type(gethui) == "function" then
     local ok, result = pcall(gethui)
-    if ok then
-        parent = result
-    end
+    if ok then parent = result end
 end
 parent = parent or game:GetService("CoreGui")
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "SAB_Hub"
+gui.Name = "SAB_PasarelaHub"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
 gui.Parent = parent
@@ -600,7 +496,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 30)
 title.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
 title.BorderSizePixel = 0
-title.Text = "SAB | Pasarela Fix + AutoBuy"
+title.Text = "SAB | Pasarela & Servidor"
 title.TextColor3 = Color3.fromRGB(235, 235, 245)
 title.Font = Enum.Font.GothamBold
 title.TextSize = 13
@@ -612,7 +508,7 @@ st = Instance.new("TextLabel")
 st.Size = UDim2.new(1, -20, 0, 16)
 st.Position = UDim2.new(0, 10, 0, 34)
 st.BackgroundTransparency = 1
-st.Text = "Listo"
+st.Text = "Escaneando pasarela..."
 st.TextColor3 = Color3.fromRGB(140, 200, 140)
 st.Font = Enum.Font.Gotham
 st.TextSize = 11
@@ -637,16 +533,12 @@ local function mkButton(txt, y, color, callback)
     return b
 end
 
--- =========================================
--- BUSCADOR Y LISTA
--- =========================================
-
 local search = Instance.new("TextBox")
 search.Size = UDim2.new(1, -20, 0, 26)
 search.Position = UDim2.new(0, 10, 0, 224)
 search.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
 search.BorderSizePixel = 0
-search.PlaceholderText = "buscar brainrot..."
+search.PlaceholderText = "buscar brainrot en pasarela..."
 search.Text = ""
 search.TextColor3 = Color3.fromRGB(230, 230, 235)
 search.Font = Enum.Font.Gotham
@@ -674,10 +566,6 @@ listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
     scroll.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 4)
 end)
 
--- =========================================
--- AGRUPACION Y CONTADORES
--- =========================================
-
 local function buildGroups()
     local groups = {}
     for _, entry in ipairs(promptEntries) do
@@ -698,49 +586,35 @@ end
 local function countSelected(groups)
     local amount = 0
     for key in pairs(groups) do
-        if CFG.selected[key] == true then
-            amount = amount + 1
-        end
+        if CFG.selected[key] == true then amount = amount + 1 end
     end
     return amount
 end
 
 local function updateStatus()
-    if isBuying then
-        return
-    end
-
+    if isBuying then return end
     local groups = buildGroups()
-    local detected = 0
-    for _ in pairs(groups) do
-        detected = detected + 1
-    end
+    local totalUnits = #promptEntries
+    local uniqueTypes = 0
+    for _ in pairs(groups) do uniqueTypes = uniqueTypes + 1 end
 
     st.Text = string.format(
-        "Brainrots: %d | Marcados: %d | OK: %d/%d",
-        detected,
-        countSelected(groups),
+        "Pasarela: %d (Tipos: %d) | OK: %d/%d",
+        totalUnits,
+        uniqueTypes,
         stats.confirmed,
         stats.attempts
     )
 end
 
--- =========================================
--- DIBUJAR LISTA
--- =========================================
-
 local function refreshList()
     for _, child in ipairs(scroll:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
-        end
+        if child:IsA("TextButton") then child:Destroy() end
     end
 
     local groups = buildGroups()
     local keys = {}
-    for key in pairs(groups) do
-        keys[#keys + 1] = key
-    end
+    for key in pairs(groups) do keys[#keys + 1] = key end
     table.sort(keys)
 
     local query = normalizeName(search.Text)
@@ -755,16 +629,9 @@ local function refreshList()
             local button = Instance.new("TextButton")
 
             button.Size = UDim2.new(1, 0, 0, 26)
-            button.BackgroundColor3 = selected
-                and Color3.fromRGB(35, 110, 70)
-                or Color3.fromRGB(32, 32, 40)
+            button.BackgroundColor3 = selected and Color3.fromRGB(35, 110, 70) or Color3.fromRGB(32, 32, 40)
             button.BorderSizePixel = 0
-            button.Text = string.format(
-                " %s %s (%d)",
-                selected and "[X]" or "[ ]",
-                entry.name,
-                entry.count
-            )
+            button.Text = string.format(" %s %s (Cant: %d)", selected and "[X]" or "[ ]", entry.name, entry.count)
             button.TextColor3 = Color3.fromRGB(225, 225, 235)
             button.Font = Enum.Font.Gotham
             button.TextSize = 11
@@ -776,9 +643,7 @@ local function refreshList()
 
             local selectedKey = key
             button.MouseButton1Click:Connect(function()
-                if not groups[selectedKey] then
-                    return
-                end
+                if not groups[selectedKey] then return end
                 if CFG.selected[selectedKey] then
                     CFG.selected[selectedKey] = nil
                 else
@@ -797,10 +662,6 @@ local function refreshList()
 end
 
 search:GetPropertyChangedSignal("Text"):Connect(refreshList)
-
--- =========================================
--- BOTONES Y ESTADOS
--- =========================================
 
 local function updateButtons()
     local function update(button, label, enabled, color)
@@ -824,13 +685,7 @@ end)
 
 btnFreeze = mkButton("Freeze: OFF", 88, Color3.fromRGB(60, 60, 70), function()
     CFG.freeze = not CFG.freeze
-    if CFG.freeze then
-        applyFreeze()
-        toast("Freeze activado")
-    else
-        clearFreeze()
-        toast("Freeze desactivado")
-    end
+    if CFG.freeze then applyFreeze() toast("Freeze activado") else clearFreeze() toast("Freeze desactivado") end
     updateButtons()
 end)
 
@@ -852,36 +707,26 @@ btnFastPrompts = mkButton("Fast Prompts: OFF", 190, Color3.fromRGB(60, 60, 70), 
     toast(CFG.fastPrompts and "Fast Prompts activado (0.1s)" or "Fast Prompts desactivado")
 end)
 
--- =========================================
--- ACTUALIZACION DE ESCANEO
--- =========================================
-
 local function updatePromptWatchers(activePrompts)
     for prompt in pairs(activePrompts) do
         if not promptWatchers[prompt] then
             local connections = {}
-
             table.insert(connections, prompt:GetPropertyChangedSignal("ActionText"):Connect(function()
                 if scannerAlive then scheduleScan() end
             end))
-
             table.insert(connections, prompt:GetPropertyChangedSignal("ObjectText"):Connect(function()
                 if scannerAlive then scheduleScan() end
             end))
-
             table.insert(connections, prompt:GetPropertyChangedSignal("Enabled"):Connect(function()
                 if scannerAlive then scheduleScan() end
             end))
-
             promptWatchers[prompt] = connections
         end
     end
 
     for prompt, connections in pairs(promptWatchers) do
         if not activePrompts[prompt] then
-            for _, connection in ipairs(connections) do
-                connection:Disconnect()
-            end
+            for _, connection in ipairs(connections) do connection:Disconnect() end
             promptWatchers[prompt] = nil
         end
     end
@@ -890,15 +735,11 @@ end
 local function refreshScan()
     local newEntries, activePrompts = scanPrompts()
     promptEntries = newEntries
-
     updatePromptWatchers(activePrompts)
 
     local sortedKeys = {}
     local groups = buildGroups()
-
-    for key in pairs(groups) do
-        sortedKeys[#sortedKeys + 1] = key
-    end
+    for key in pairs(groups) do sortedKeys[#sortedKeys + 1] = key end
     table.sort(sortedKeys)
 
     local signatureParts = {}
@@ -908,7 +749,6 @@ local function refreshScan()
     end
 
     local signature = table.concat(signatureParts, "|")
-
     if signature ~= lastSignature then
         lastSignature = signature
         refreshList()
@@ -918,40 +758,22 @@ local function refreshScan()
 end
 
 scheduleScan = function()
-    if not scannerAlive or scanQueued then
-        return
-    end
-
+    if not scannerAlive or scanQueued then return end
     scanQueued = true
-
     task.delay(0.12, function()
         scanQueued = false
-        if not scannerAlive or not gui.Parent then
-            return
-        end
-
-        local ok, err = pcall(refreshScan)
-        if not ok then
-            warn("[SAB] Error al actualizar escaneo:", err)
-        end
+        if not scannerAlive or not gui.Parent then return end
+        pcall(refreshScan)
     end)
 end
 
 table.insert(scanConnections, workspace.DescendantAdded:Connect(function(instance)
-    if instance:IsA("ProximityPrompt") then
-        scheduleScan()
-    end
+    if instance:IsA("ProximityPrompt") then scheduleScan() end
 end))
 
 table.insert(scanConnections, workspace.DescendantRemoving:Connect(function(instance)
-    if instance:IsA("ProximityPrompt") then
-        scheduleScan()
-    end
+    if instance:IsA("ProximityPrompt") then scheduleScan() end
 end))
-
--- =========================================
--- CERRAR Y LIMPIAR
--- =========================================
 
 local close = Instance.new("TextButton")
 close.Size = UDim2.new(0, 30, 0, 30)
@@ -963,82 +785,37 @@ close.Font = Enum.Font.GothamBold
 close.TextSize = 14
 close.Parent = main
 
-local function cleanupScanner()
-    if not scannerAlive then
-        return
-    end
-
-    scannerAlive = false
-    CFG.autoBuy = false
-
-    for _, connection in ipairs(scanConnections) do
-        connection:Disconnect()
-    end
-
-    for _, connections in pairs(promptWatchers) do
-        for _, connection in ipairs(connections) do
-            connection:Disconnect()
-        end
-    end
-
-    table.clear(promptWatchers)
-end
-
 close.MouseButton1Click:Connect(function()
     CFG.autoBuy = false
-    if CFG.freeze then
-        CFG.freeze = false
-        clearFreeze()
-    end
-    updateButtons()
-    cleanupScanner()
-    gui:Destroy()
+    if CFG.freeze then CFG.freeze = false clearFreeze() end
+    scannerAlive = gui:Destroy()
 end)
-
-gui.Destroying:Connect(cleanupScanner)
-
--- =========================================
--- LOOPS PRINCIPALES
--- =========================================
 
 task.spawn(function()
     while scannerAlive and gui.Parent do
         task.wait(CFG.scanDelay)
-        if scannerAlive and gui.Parent then
-            local ok, err = pcall(refreshScan)
-            if not ok then
-                warn("[SAB] Error en reconciliacion:", err)
-            end
-        end
+        if scannerAlive and gui.Parent then pcall(refreshScan) end
     end
 end)
 
 task.spawn(function()
     while scannerAlive and gui.Parent do
         task.wait(CFG.delay)
-
         if CFG.autoBuy and not isBuying then
             isBuying = true
-
             local queue = table.clone(promptEntries)
-
             for _, entry in ipairs(queue) do
-                if not CFG.autoBuy or not scannerAlive or not gui.Parent then
-                    break
-                end
-
+                if not CFG.autoBuy or not scannerAlive or not gui.Parent then break end
                 if CFG.selected[entry.key] == true then
                     local prompt = entry.prompt
                     local now = os.clock()
                     local ready = not promptCooldowns[prompt] or (now - promptCooldowns[prompt] >= CFG.promptCooldown)
-
                     if prompt and prompt.Parent and prompt.Enabled and ready then
                         tryBuy(entry)
                         task.wait(CFG.delay)
                     end
                 end
             end
-
             isBuying = false
             updateStatus()
         end
@@ -1048,86 +825,10 @@ end)
 task.spawn(function()
     while scannerAlive and gui.Parent do
         task.wait(0.15)
-        if CFG.freeze then
-            pcall(applyFreeze)
-        end
+        if CFG.freeze then pcall(applyFreeze) end
     end
 end)
-
--- Loop Anti-Ragdoll Definitivo
-task.spawn(function()
-    while scannerAlive and gui.Parent do
-        task.wait(0.05)
-        if CFG.antiRagdoll then
-            pcall(function()
-                local char = lp.Character
-                if not char then return end
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                if not hum or not hrp or hum.Health <= 0 then return end
-
-                local state = hum:GetState()
-                if state == Enum.HumanoidStateType.Physics or state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.FallingDown or state == Enum.HumanoidStateType.PlatformStanding then
-                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-                    hrp.Velocity = Vector3.zero
-                    hrp.RotVelocity = Vector3.zero
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                    
-                    for _, desc in ipairs(char:GetDescendants()) do
-                        if desc:IsA("Motor6D") or desc:IsA("Weld") then
-                            desc.Enabled = true
-                        end
-                    end
-                    
-                    hum.AutoRotate = true
-                    hum.PlatformStand = false
-                    hum.Sit = false
-
-                    if hum.WalkSpeed < 1 then
-                        hum.WalkSpeed = 16
-                    end
-
-                    local playerScripts = lp:FindFirstChild("PlayerScripts")
-                    if playerScripts then
-                        local playerModule = playerScripts:FindFirstChild("PlayerModule")
-                        if playerModule then
-                            local controls = require(playerModule):GetControls()
-                            if controls then
-                                controls:Enable()
-                            end
-                        end
-                    end
-                end
-            end)
-        end
-    end
-end)
-
-task.spawn(function()
-    while scannerAlive and gui.Parent do
-        task.wait(0.1)
-        if CFG.fastPrompts then
-            pcall(function()
-                for _, prompt in pairs(workspace:GetDescendants()) do
-                    if prompt:IsA("ProximityPrompt") then
-                        prompt.HoldDuration = 0
-                    end
-                end
-            end)
-        end
-    end
-end)
-
--- =========================================
--- INICIALIZACION
--- =========================================
 
 updateButtons()
-
-local ok, err = pcall(refreshScan)
-if not ok then
-    warn("[SAB] Error en escaneo inicial:", err)
-end
-
-toast("SAB (Pasarela Fix) cargado correctamente")
+pcall(refreshScan)
+toast("Escáner de Pasarela Activo")
