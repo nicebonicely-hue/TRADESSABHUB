@@ -139,7 +139,7 @@ local function ancestorName(prompt)
     local nodes = {}
     local node = prompt.Parent
 
-    for i = 1, 10 do
+    for i = 1, 12 do
         if not node then
             break
         end
@@ -148,11 +148,9 @@ local function ancestorName(prompt)
         node = node.Parent
     end
 
-    -- Búsqueda protegida con pcall para evitar errores en atributos nuevos
+    -- Búsqueda blindada por pcall en atributos actuales del servidor de Sammy
     for _, current in ipairs(nodes) do
-        local okAttrs, attrs = pcall(function()
-            return current:GetAttributes()
-        end)
+        local okAttrs, attrs = pcall(function() return current:GetAttributes() end)
         if okAttrs and attrs then
             for _, attribute in ipairs(NAME_ATTRIBUTES) do
                 local value = cleanName(attrs[attribute])
@@ -169,10 +167,8 @@ local function ancestorName(prompt)
         end
     end
 
-    local successText, objectText = pcall(function()
-        return cleanName(prompt.ObjectText)
-    end)
-    if successText and objectText then
+    local okText, objectText = pcall(function() return cleanName(prompt.ObjectText) end)
+    if okText and objectText then
         return objectText
     end
 
@@ -205,26 +201,20 @@ local function isBuyPrompt(prompt)
 end
 
 -- =========================================
--- ESCANEO SEGURO
+-- ESCANEO (CORREGIDO Y BLINDADO)
 -- =========================================
 
 local function scanPrompts()
     local entries = {}
     local activePrompts = {}
 
-    local success, descendants = pcall(function()
-        return workspace:GetDescendants()
-    end)
-
+    local success, descendants = pcall(function() return workspace:GetDescendants() end)
     if not success or not descendants then
         return entries, activePrompts
     end
 
     for _, obj in ipairs(descendants) do
-        local isPrompt = pcall(function()
-            return obj:IsA("ProximityPrompt")
-        end)
-        
+        local isPrompt = pcall(function() return obj:IsA("ProximityPrompt") end)
         if isPrompt and obj:IsA("ProximityPrompt") then
             activePrompts[obj] = true
 
@@ -498,7 +488,7 @@ local function tryBuy(entry)
         hrp.CFrame = CFrame.new(targetPosition + Vector3.new(0, 3, 0))
         teleported = true
         task.wait(0.08)
-            end
+    end
 
     if not prompt or not prompt.Parent or not prompt.Enabled then
         if teleported and hrp and hrp.Parent and savedCFrame then
@@ -518,7 +508,7 @@ local function tryBuy(entry)
     local confirmed, reason = false, "Error al disparar prompt"
     if firedOk then
         confirmed, reason = verifyPurchase(
-            prompt,
+                        prompt,
             initialParent,
             initialCurrency,
             initialItems,
@@ -998,7 +988,7 @@ end)
 
 task.spawn(function()
     while scannerAlive and gui.Parent do
-                    task.wait(CFG.delay)
+        task.wait(CFG.delay)
 
         if CFG.autoBuy and not isBuying then
             isBuying = true
@@ -1008,7 +998,7 @@ task.spawn(function()
             for _, entry in ipairs(queue) do
                 if not CFG.autoBuy or not scannerAlive or not gui.Parent then
                     break
-                end
+                                        end
 
                 if CFG.selected[entry.key] == true then
                     local prompt = entry.prompt
