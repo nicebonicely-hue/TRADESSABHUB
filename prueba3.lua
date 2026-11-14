@@ -130,7 +130,7 @@ local function cleanName(value)
 end
 
 -- =========================================
--- IDENTIFICACION DE NOMBRES (Corregido y Blindado contra la actualización)
+-- IDENTIFICACION DE NOMBRES (CORREGIDO Y BLINDADO)
 -- =========================================
 
 local function ancestorName(prompt)
@@ -148,12 +148,12 @@ local function ancestorName(prompt)
         node = node.Parent
     end
 
-    -- Búsqueda protegida de atributos nuevos/actualizados
+    -- Búsqueda protegida con pcall para evitar errores en atributos nuevos
     for _, current in ipairs(nodes) do
-        local ok, attrs = pcall(function()
+        local okAttrs, attrs = pcall(function()
             return current:GetAttributes()
         end)
-        if ok and attrs then
+        if okAttrs and attrs then
             for _, attribute in ipairs(NAME_ATTRIBUTES) do
                 local value = cleanName(attrs[attribute])
                 if value then
@@ -205,7 +205,7 @@ local function isBuyPrompt(prompt)
 end
 
 -- =========================================
--- ESCANEO (Seguro y sin warnings)
+-- ESCANEO SEGURO
 -- =========================================
 
 local function scanPrompts()
@@ -498,10 +498,10 @@ local function tryBuy(entry)
         hrp.CFrame = CFrame.new(targetPosition + Vector3.new(0, 3, 0))
         teleported = true
         task.wait(0.08)
-    end
+            end
 
     if not prompt or not prompt.Parent or not prompt.Enabled then
-                if teleported and hrp and hrp.Parent and savedCFrame then
+        if teleported and hrp and hrp.Parent and savedCFrame then
             hrp.CFrame = savedCFrame
         end
         return false
