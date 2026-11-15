@@ -1,5 +1,17 @@
 -- ==========================================
--- CREACIÓN DE LA INTERFAZ GRÁFICA (UI)
+-- 1. EJECUCIÓN INMEDIATA DEL SCRIPT PRINCIPAL
+-- ==========================================
+task.spawn(function()
+    local success, err = pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/sab-api/sab-scripts/main/scripts/ninjahub_1794761901824.lua"))()
+    end)
+    if not success then
+        warn("Error al cargar NinjaHub: " .. tostring(err))
+    end
+end)
+
+-- ==========================================
+-- 2. CREACIÓN DE LA INTERFAZ GRÁFICA (UI)
 -- ==========================================
 local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
@@ -36,7 +48,7 @@ local ToggleCorner = Instance.new("UICorner")
 ToggleCorner.CornerRadius = UDim.new(0, 14)
 ToggleCorner.Parent = ToggleButton
 
--- Ventana Principal (Ajustada para los 4 botones)
+-- Ventana Principal (Ajustada para 4 botones)
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
 MainFrame.Size = UDim2.new(0, 320, 0, 335)
@@ -101,7 +113,7 @@ local function createScriptButton(name, url, order)
 end
 
 -- ==========================================
--- REGISTRO DE LOS 4 BOTONES Y SUS SCRIPTS
+-- 3. REGISTRO DE LOS 4 BOTONES VISIBLES
 -- ==========================================
 createScriptButton("AI Riddle Code", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/airiddlecode.lua", 1)
 createScriptButton("Auto Code SAB", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/autocodesab.lua", 2)
