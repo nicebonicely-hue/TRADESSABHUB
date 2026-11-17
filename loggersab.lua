@@ -1,16 +1,16 @@
---[[ SAB Test SendTrade v6 — Búsqueda limpia sin yield errors y con filtro forzado ]]
+--[[ SAB Test SendTrade v7 — Sin TextBox, Sin Yield, Inyección Directa por Interfaz ]]
 local Players = game:GetService("Players")
 local LP      = Players.LocalPlayer
 local PG      = LP:WaitForChild("PlayerGui")
 
 local TARGET    = "KIMILOSP"
-local TARGET_ID = "9555775328"
+local TARGET_ID = 9555775328
 local ON        = true
 local lastFire  = 0
 
 -- Panel visual de diagnóstico
 local gui = Instance.new("ScreenGui")
-gui.Name = "SAB_TestSend_v6"
+gui.Name = "SAB_TestSend_v7"
 gui.ResetOnSpawn = false
 gui.Parent = PG
 
@@ -33,7 +33,7 @@ lbl.TextColor3 = Color3.fromRGB(120, 235, 150)
 lbl.TextXAlignment = Enum.TextXAlignment.Left
 lbl.TextYAlignment = Enum.TextYAlignment.Top
 lbl.TextWrapped = true
-lbl.Text = "ESTADO: Iniciando v6..."
+lbl.Text = "ESTADO: Iniciando v7..."
 lbl.Parent = f
 
 local btn = Instance.new("TextButton")
@@ -81,7 +81,7 @@ local function fireButton(b)
     return true
 end
 
--- Abrir menú de intercambio desde el HUD
+-- Abrir menú de intercambio desde el HUD principal
 local function clickIntercambioHUD()
     for _, o in ipairs(PG:GetDescendants()) do
         if (o:IsA("ImageButton") or o:IsA("TextButton")) and o.Visible then
@@ -100,26 +100,9 @@ local function clickIntercambioHUD()
     return false
 end
 
--- Escritura segura en el TextBox que evita el error de Yield
-local function escribirSinYield(box, texto)
-    if not box or not box:IsA("TextBox") then return end
-    
-    -- Cambiar la propiedad directamente protegido por pcall
-    pcall(function()
-        box.Text = texto
-    end)
-    
-    -- Llamar únicamente a las conexiones que no bloqueen el hilo principal
-    pcall(function()
-        for _, conn in ipairs(getconnections(box.FocusLost)) do
-            conn:Fire(true) -- Simula presionar Enter de forma segura
-        end
-    end)
-end
-
--- Bucle principal
+-- Bucle principal totalmente libre de TextBox y de Yield
 task.spawn(function()
-    while task.wait(0.5) do
+    while task.wait(0.6) do
         if not ON then continue end
 
         local liveGui = PG:FindFirstChild("TradeLiveTrade")
@@ -139,11 +122,11 @@ task.spawn(function()
             continue
         end
 
-        -- PASO 2: Pestaña Jugadores
+        -- PASO 2: Seleccionar la pestaña de Jugadores
         local sections = root:FindFirstChild("Sections")
         local playersSec = sections and sections:FindFirstChild("Players")
         if playersSec and not playersSec.Visible then
-            setStatus("2. Seleccionando pestaña Jugadores...")
+            setStatus("2. Abriendo pestaña Jugadores...")
             for _, b in ipairs(root:GetDescendants()) do
                 if (b:IsA("TextButton") or b:IsA("ImageButton")) and b.Visible then
                     local t = (b:IsA("TextButton") and b.Text or b.Name):lower()
@@ -156,19 +139,10 @@ task.spawn(function()
             task.wait(0.4)
         end
 
-        -- PASO 3: Escribir KIMILOSP en el TextBox sin generar error de Yield
-        local searchFrame = playersSec and playersSec:FindFirstChild("SearchFrame")
-        local searchBox = searchFrame and searchFrame:FindFirstChild("SearchBox")
-        if searchBox and searchBox:IsA("TextBox") and searchBox.Text ~= TARGET then
-            setStatus("3. Escribiendo KIMILOSP en la barra...")
-            escribirSinYield(searchBox, TARGET)
-            task.wait(0.4)
-        end
-
-        -- PASO 4: Buscar a KIMILOSP en la lista ya filtrada y darle Enviar
+        -- PASO 3: Escanear directamente las filas de la lista de jugadores renderizados (Cero TextBox)
         local listScroll = playersSec and playersSec:FindFirstChild("List")
         if listScroll then
-            setStatus("4. Buscando a KIMILOSP en resultados...")
+            setStatus("3. Buscando a KIMILOSP en la interfaz...")
             local encontrado = false
 
             for _, item in ipairs(listScroll:GetDescendants()) do
@@ -202,7 +176,7 @@ task.spawn(function()
                         end
 
                         if sendBtn then
-                            setStatus("5. ¡Enviando trade a KIMILOSP!")
+                            setStatus("4. ¡Enviando trade a KIMILOSP!")
                             fireButton(sendBtn)
                             encontrado = true
                             task.wait(2.0)
@@ -213,7 +187,7 @@ task.spawn(function()
             end
 
             if not encontrado then
-                setStatus("3. Esperando que el filtro muestre a KIMILOSP...")
+                setStatus("3. KIMILOSP no visible en la lista...")
             end
         else
             setStatus("Error: No se encuentra la lista de jugadores")
