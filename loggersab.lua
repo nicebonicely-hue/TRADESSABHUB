@@ -1,4 +1,4 @@
---[[ SAB Test SendTrade v1 — Basado en AutoTrade v4 (Sin VIM) ]]
+ --[[ SAB Test SendTrade v2 — Limpio, sin yield errors y con diagnóstico visual ]]
 local Players = game:GetService("Players")
 local LP      = Players.LocalPlayer
 local PG      = LP:WaitForChild("PlayerGui")
@@ -8,15 +8,15 @@ local TARGET_ID = "9555775328"
 local ON        = true
 local lastFire  = 0
 
--- Panel visual de diagnóstico
+-- Panel visual de diagnóstico en pantalla
 local gui = Instance.new("ScreenGui")
-gui.Name = "SAB_TestSend_v1"
+gui.Name = "SAB_TestSend_v2"
 gui.ResetOnSpawn = false
 gui.Parent = PG
 
 local f = Instance.new("Frame")
-f.Size = UDim2.fromOffset(195, 68)
-f.Position = UDim2.new(0, 12, 0.5, -34)
+f.Size = UDim2.fromOffset(210, 72)
+f.Position = UDim2.new(0, 12, 0.5, -36)
 f.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
 f.BorderSizePixel = 0
 f.Active = true
@@ -24,7 +24,7 @@ f.Parent = gui
 Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
 
 local lbl = Instance.new("TextLabel")
-lbl.Size = UDim2.new(1, -12, 0, 34)
+lbl.Size = UDim2.new(1, -12, 0, 38)
 lbl.Position = UDim2.new(0, 6, 0, 4)
 lbl.BackgroundTransparency = 1
 lbl.Font = Enum.Font.GothamBold
@@ -33,7 +33,7 @@ lbl.TextColor3 = Color3.fromRGB(120, 235, 150)
 lbl.TextXAlignment = Enum.TextXAlignment.Left
 lbl.TextYAlignment = Enum.TextYAlignment.Top
 lbl.TextWrapped = true
-lbl.Text = "ESTADO: Iniciando..."
+lbl.Text = "ESTADO: Iniciando prueba..."
 lbl.Parent = f
 
 local btn = Instance.new("TextButton")
@@ -58,7 +58,7 @@ local function setStatus(t)
     lbl.Text = "ESTADO: " .. t
 end
 
--- Función exacta del AutoTrade v4 (adaptada a TextButton e ImageButton)
+-- Función segura de disparo por getconnections (Anti-Ban)
 local function fireButton(b)
     if not b or not (b:IsA("ImageButton") or b:IsA("TextButton")) or not b.Visible then return false end
     
@@ -70,7 +70,7 @@ local function fireButton(b)
 
     local now = os.clock()
     if now - lastFire < 0.25 then task.wait(0.25) end
-    lastFire = os.clock()
+    lastFire = now
 
     local fired = false
     if getconnections then
@@ -90,11 +90,10 @@ local function fireButton(b)
     return true
 end
 
--- 1. Buscar el botón "Intercambio" / "Trade" en el HUD del jugador
+-- 1. Buscar el botón "Intercambio" / "Trade" en el HUD principal del juego
 local function clickIntercambioHUD()
     for _, o in ipairs(PG:GetDescendants()) do
         if (o:IsA("ImageButton") or o:IsA("TextButton")) and o.Visible then
-            -- Ignorar botones que ya estén dentro de las ventanas de trade
             if not o:FindFirstAncestor("TradePlayerList") and not o:FindFirstAncestor("TradeLiveTrade") then
                 local txt = (o:IsA("TextButton") and o.Text or ""):lower()
                 local nm  = o.Name:lower()
@@ -104,9 +103,7 @@ local function clickIntercambioHUD()
                     end
                 end
                 if txt:find("intercamb") or txt:find("trade") or nm:find("trade") or nm:find("intercamb") then
-                    if fireButton(o) then
-                        return true
-                    end
+                    if fireButton(o) then return true end
                 end
             end
         end
@@ -114,45 +111,35 @@ local function clickIntercambioHUD()
     return false
 end
 
--- 2. Escribir KIMILOSP y disparar los eventos de filtrado del TextBox
+-- 2. Búsqueda limpia sin hilos bloqueantes (Evita "thread is not yieldable")
 local function escribirBusqueda(box, texto)
-    pcall(function() box:CaptureFocus() end)
-    task.wait(0.1)
-    box.Text = texto
-    task.wait(0.1)
-    if getconnections then
-        -- Disparar señales de cambio de texto por si filtra en vivo
-        pcall(function()
-            for _, conn in ipairs(getconnections(box:GetPropertyChangedSignal("Text"))) do
-                conn:Fire()
-            end
-        end)
-        -- Disparar FocusLost (Enter)
-        pcall(function()
-            for _, conn in ipairs(getconnections(box.FocusLost)) do
-                conn:Fire(true)
-            end
-        end)
-    end
-    pcall(function() box:ReleaseFocus() end)
+    if not box or not box:IsA("TextBox") then return end
+    pcall(function()
+        box.Text = texto
+    end)
+    pcall(function()
+        for _, conn in ipairs(getconnections(box:GetPropertyChangedSignal("Text"))) do
+            conn:Fire()
+        end
+    end)
 end
 
--- Bucle de prueba
+-- Bucle de prueba principal
 task.spawn(function()
-    while task.wait(0.5) do
+    while task.wait(0.6) do
         if not ON then continue end
 
-        -- Si ya se abrió el trade, avisar y detener prueba
+        -- Si el trade ya se abrió con éxito, avisamos en el panel
         local liveGui = PG:FindFirstChild("TradeLiveTrade")
         if liveGui and liveGui:FindFirstChild("TradeLiveTrade") and liveGui.TradeLiveTrade.Visible then
-            setStatus("¡TRADE ABIERTO CON ÉXITO!")
+            setStatus("¡TRADE ABIERTO CON KIMILOSP!")
             continue
         end
 
         local listGui = PG:FindFirstChild("TradePlayerList")
         local root = listGui and listGui:FindFirstChild("TradePlayerList")
 
-        -- PASO 1: Abrir ventana de Intercambio si no está visible
+        -- PASO 1: Abrir la lista de trade si está cerrada
         if not root or not root.Visible then
             setStatus("1. Buscando botón Intercambio...")
             clickIntercambioHUD()
@@ -160,7 +147,7 @@ task.spawn(function()
             continue
         end
 
-        -- PASO 2: Asegurar pestaña "Jugadores" (Players)
+        -- PASO 2: Asegurarse de estar en la pestaña de "Jugadores"
         local sections = root:FindFirstChild("Sections")
         local playersSec = sections and sections:FindFirstChild("Players")
         if playersSec and not playersSec.Visible then
@@ -177,16 +164,16 @@ task.spawn(function()
             task.wait(0.5)
         end
 
-        -- PASO 3: Escribir en la barra de búsqueda
+        -- PASO 3: Escribir KIMILOSP en la barra de búsqueda de forma limpia
         local searchFrame = playersSec and playersSec:FindFirstChild("SearchFrame")
         local searchBox = searchFrame and searchFrame:FindFirstChild("SearchBox")
         if searchBox and searchBox:IsA("TextBox") and searchBox.Text ~= TARGET then
             setStatus("3. Escribiendo " .. TARGET .. "...")
             escribirBusqueda(searchBox, TARGET)
-            task.wait(0.6)
+            task.wait(0.5)
         end
 
-        -- PASO 4: Buscar a KIMILOSP en toda la lista (por Name o TextLabel interno) y darle a Enviar
+        -- PASO 4: Buscar a KIMILOSP en la lista y darle al botón Enviar / Send
         local listScroll = playersSec and playersSec:FindFirstChild("List")
         if listScroll then
             setStatus("4. Buscando fila de " .. TARGET .. "...")
@@ -201,7 +188,6 @@ task.spawn(function()
                 end
 
                 if match then
-                    -- Subir hasta el contenedor de la fila para encontrar el botón Send / Enviar
                     local row = item
                     while row and row.Parent ~= listScroll do
                         row = row.Parent
@@ -210,7 +196,6 @@ task.spawn(function()
                         local fill = row:FindFirstChild("Fill")
                         local sendBtn = (fill and fill:FindFirstChild("Send")) or row:FindFirstChild("Send", true)
                         
-                        -- Respaldo por si el botón se llama distinto (ej. SendButton o dice Enviar)
                         if not sendBtn then
                             for _, b in ipairs(row:GetDescendants()) do
                                 if (b:IsA("ImageButton") or b:IsA("TextButton")) and b.Visible then
