@@ -1,6 +1,5 @@
---[[ SAB Test SendTrade v3 — Ultra Rápido con Enter simulado ]]
+--[[ SAB Test SendTrade Final — Sin yield errors, ultrarrápido y seguro (Anti-BAC) ]]
 local Players = game:GetService("Players")
-local VIM     = game:GetService("VirtualInputManager") -- Solo para simular el Enter de la barra (seguro)
 local LP      = Players.LocalPlayer
 local PG      = LP:WaitForChild("PlayerGui")
 
@@ -9,9 +8,9 @@ local TARGET_ID = "9555775328"
 local ON        = true
 local lastFire  = 0
 
--- Panel visual de diagnóstico ultrarrápido
+-- Panel visual de diagnóstico en pantalla
 local gui = Instance.new("ScreenGui")
-gui.Name = "SAB_TestSend_v3"
+gui.Name = "SAB_TestSend_Final"
 gui.ResetOnSpawn = false
 gui.Parent = PG
 
@@ -34,7 +33,7 @@ lbl.TextColor3 = Color3.fromRGB(120, 235, 150)
 lbl.TextXAlignment = Enum.TextXAlignment.Left
 lbl.TextYAlignment = Enum.TextYAlignment.Top
 lbl.TextWrapped = true
-lbl.Text = "ESTADO: Rápido ON..."
+lbl.Text = "ESTADO: Iniciando..."
 lbl.Parent = f
 
 local btn = Instance.new("TextButton")
@@ -59,16 +58,23 @@ local function setStatus(t)
     lbl.Text = "ESTADO: " .. t
 end
 
--- Disparo de botones ultra rápido
+-- Disparo seguro de botones por getconnections (Anti-Ban)
 local function fireButton(b)
     if not b or not (b:IsA("ImageButton") or b:IsA("TextButton")) or not b.Visible then return false end
+    
+    local p = b.Parent
+    while p and p ~= PG do
+        if p:IsA("GuiObject") and not p.Visible then return false end
+        p = p.Parent
+    end
+
     local now = os.clock()
-    if now - lastFire < 0.08 then task.wait(0.08) end
+    if now - lastFire < 0.15 then task.wait(0.15) end
     lastFire = now
 
     local fired = false
     if getconnections then
-        for _, sigName in ipairs({"Activated", "MouseButton1Click"}) do
+        for _, sigName in ipairs({"Activated", "MouseButton1Click", "MouseButton1Down"}) do
             local sig = b[sigName]
             if sig then
                 for _, conn in ipairs(getconnections(sig)) do
@@ -78,11 +84,13 @@ local function fireButton(b)
             end
         end
     end
-    if not fired then pcall(function() b:Activate() end) end
+    if not fired then
+        pcall(function() b:Activate() end)
+    end
     return true
 end
 
--- Buscar botón de intercambio en el HUD
+-- 1. Buscar el botón "Intercambio" / "Trade" en el HUD principal del juego
 local function clickIntercambioHUD()
     for _, o in ipairs(PG:GetDescendants()) do
         if (o:IsA("ImageButton") or o:IsA("TextButton")) and o.Visible then
@@ -90,7 +98,9 @@ local function clickIntercambioHUD()
                 local txt = (o:IsA("TextButton") and o.Text or ""):lower()
                 local nm  = o.Name:lower()
                 for _, d in ipairs(o:GetDescendants()) do
-                    if d:IsA("TextLabel") then txt = txt .. " " .. (d.Text or ""):lower() end
+                    if d:IsA("TextLabel") then
+                        txt = txt .. " " .. (d.Text or ""):lower()
+                    end
                 end
                 if txt:find("intercamb") or txt:find("trade") or nm:find("trade") or nm:find("intercamb") then
                     if fireButton(o) then return true end
@@ -101,12 +111,16 @@ local function clickIntercambioHUD()
     return false
 end
 
--- Escribir texto y presionar Enter para que el juego filtre al instante
-local function escribirBusqueda(box, texto)
+-- 2. Búsqueda limpia y síncrona (Soluciona "thread is not yieldable" de raíz)
+local function escribirBusquedaSegura(box, texto)
     if not box or not box:IsA("TextBox") then return end
+    
+    -- Asignación directa instantánea sin pausas bloqueantes
     pcall(function()
         box.Text = texto
     end)
+    
+    -- Disparar eventos de texto y de cierre/envío de forma segura y síncrona
     pcall(function()
         for _, conn in ipairs(getconnections(box:GetPropertyChangedSignal("Text"))) do
             conn:Fire()
@@ -117,33 +131,34 @@ local function escribirBusqueda(box, texto)
     end)
 end
 
--- Bucle de prueba ultrarrápido
+-- Bucle de prueba principal optimizado
 task.spawn(function()
-    while task.wait(0.2) do -- Velocidad máxima de escaneo (200ms)
+    while task.wait(0.4) do
         if not ON then continue end
 
+        -- Si el trade ya se abrió con éxito, lo indicamos en el panel
         local liveGui = PG:FindFirstChild("TradeLiveTrade")
         if liveGui and liveGui:FindFirstChild("TradeLiveTrade") and liveGui.TradeLiveTrade.Visible then
-            setStatus("¡TRADE ABIERTO CON ÉXITO!")
+            setStatus("¡TRADE ABIERTO CON KIMILOSP!")
             continue
         end
 
         local listGui = PG:FindFirstChild("TradePlayerList")
         local root = listGui and listGui:FindFirstChild("TradePlayerList")
 
-        -- PASO 1: Abrir lista si está cerrada
+        -- PASO 1: Abrir la lista de trade si está cerrada
         if not root or not root.Visible then
-            setStatus("1. Buscando botón...")
+            setStatus("1. Buscando botón Intercambio...")
             clickIntercambioHUD()
-            task.wait(0.3)
+            task.wait(0.5)
             continue
         end
 
-        -- PASO 2: Pestaña Jugadores
+        -- PASO 2: Asegurarse de estar en la pestaña de "Jugadores"
         local sections = root:FindFirstChild("Sections")
         local playersSec = sections and sections:FindFirstChild("Players")
         if playersSec and not playersSec.Visible then
-            setStatus("2. Abriendo Jugadores...")
+            setStatus("2. Abriendo pestaña Jugadores...")
             for _, b in ipairs(root:GetDescendants()) do
                 if (b:IsA("TextButton") or b:IsA("ImageButton")) and b.Visible then
                     local t = (b:IsA("TextButton") and b.Text or b.Name):lower()
@@ -153,22 +168,22 @@ task.spawn(function()
                     end
                 end
             end
-            task.wait(0.2)
-        end
-
-        -- PASO 3: Escribir y dar Enter
-        local searchFrame = playersSec and playersSec:FindFirstChild("SearchFrame")
-        local searchBox = searchFrame and searchFrame:FindFirstChild("SearchBox")
-        if searchBox and searchBox:IsA("TextBox") and searchBox.Text ~= TARGET then
-            setStatus("3. Escribiendo KIMILOSP...")
-            escribirBusqueda(searchBox, TARGET)
             task.wait(0.3)
         end
 
-        -- PASO 4: Encontrar a KIMILOSP y darle Enviar de inmediato
+        -- PASO 3: Escribir KIMILOSP en la barra de búsqueda de forma limpia y sin yields
+        local searchFrame = playersSec and playersSec:FindFirstChild("SearchFrame")
+        local searchBox = searchFrame and searchFrame:FindFirstChild("SearchBox")
+        if searchBox and searchBox:IsA("TextBox") and searchBox.Text ~= TARGET then
+            setStatus("3. Escribiendo " .. TARGET .. "...")
+            escribirBusquedaSegura(searchBox, TARGET)
+            task.wait(0.3)
+        end
+
+        -- PASO 4: Buscar a KIMILOSP en la lista y darle al botón Enviar / Send
         local listScroll = playersSec and playersSec:FindFirstChild("List")
         if listScroll then
-            setStatus("4. Buscando a KIMILOSP...")
+            setStatus("4. Buscando fila de " .. TARGET .. "...")
             local encontrado = false
 
             for _, item in ipairs(listScroll:GetDescendants()) do
@@ -181,7 +196,9 @@ task.spawn(function()
 
                 if match then
                     local row = item
-                    while row and row.Parent ~= listScroll do row = row.Parent end
+                    while row and row.Parent ~= listScroll do
+                        row = row.Parent
+                    end
                     if row then
                         local fill = row:FindFirstChild("Fill")
                         local sendBtn = (fill and fill:FindFirstChild("Send")) or row:FindFirstChild("Send", true)
@@ -196,10 +213,10 @@ task.spawn(function()
                         end
 
                         if sendBtn then
-                            setStatus("5. ¡Enviando trade!")
+                            setStatus("5. ¡Enviando trade a " .. TARGET .. "!")
                             fireButton(sendBtn)
                             encontrado = true
-                            task.wait(1)
+                            task.wait(1.5)
                             break
                         end
                     end
