@@ -1,6 +1,6 @@
 --[[ 
     Steal a Brainrot | SAB Hub | GUI + Scanner + Freeze + Verified AutoBuy + Anti-Ragdoll + Fast Prompts
-    Versión Completa Optimizada y Corregida desde Cero
+    Versión Completa Optimizada y Corregida (Agrupamiento Único por Nombre)
 ]]
 
 -- =========================================
@@ -54,7 +54,7 @@ local stats = {
 }
 
 -- =========================================
--- UTILIDADES
+-- UTILIDADES Y LIMPIEZA DE NOMBRES
 -- =========================================
 
 local GENERIC = {
@@ -88,10 +88,13 @@ local CURRENCY_NAMES = {
 }
 
 local function normalizeName(name)
-    return tostring(name or "")
-        :match("^%s*(.-)%s*$")
-        :lower()
-        :gsub("%s+", " ")
+    local cleaned = tostring(name or ""):lower()
+    -- Elimina precios, símbolos de dinero y números sueltos para que la clave sea 100% el nombre
+    cleaned = cleaned:gsub("%$[%d%.,]+", "")
+    cleaned = cleaned:gsub("[%d%.,]+%$", "")
+    cleaned = cleaned:gsub("-%s*[%d%.,]+", "")
+    cleaned = cleaned:gsub("%s+", " ")
+    return cleaned:match("^%s*(.-)%s*$")
 end
 
 local function cleanName(value)
@@ -106,6 +109,11 @@ local function cleanName(value)
     end
 
     local lower = value:lower()
+
+    -- Excluir RNG Machine
+    if lower:find("rng", 1, true) or lower:find("rng machine", 1, true) then
+        return nil
+    end
 
     if GENERIC[lower] or lower:find("warning", 1, true) then
         return nil
@@ -123,7 +131,8 @@ local function cleanName(value)
         return nil
     end
 
-    if value:match("^%$?[%d%.,]+$") then
+    -- Ignorar si es solo un número o precio (ej: "25$", "$38", "120")
+    if value:match("^%$?[%d%.,]+$") or value:match("^[%d%.,]+%s*%$?$") then
         return nil
     end
 
@@ -131,7 +140,7 @@ local function cleanName(value)
 end
 
 -- =========================================
--- IDENTIFICACION DE NOMBRES (CORREGIDO Y BLINDADO)
+-- IDENTIFICACION DE NOMBRES (BLINDADO)
 -- =========================================
 
 local function ancestorName(prompt)
@@ -149,7 +158,24 @@ local function ancestorName(prompt)
         node = node.Parent
     end
 
-    -- Búsqueda blindada por pcall en atributos actuales del servidor de Sammy
+    -- Filtrar exclusión de RNG Machine en ancestros
+    for _, current in ipairs(nodes) do
+        local okModel, nameVal = pcall(function()
+            if current:IsA("Model") or current:IsA("BasePart") then
+                local cName = current.Name:lower()
+                if cName:find("rng", 1, true) then
+                    return "EXCLUDE_RNG"
+                end
+                return cleanName(current.Name)
+            end
+            return nil
+        end)
+        if okModel and nameVal == "EXCLUDE_RNG" then
+            return nil
+        end
+    end
+
+    -- Revisar atributos específicos del brainrot
     for _, current in ipairs(nodes) do
         local okAttrs, attrs = pcall(function() return current:GetAttributes() end)
         if okAttrs and attrs then
@@ -173,6 +199,7 @@ local function ancestorName(prompt)
         return objectText
     end
 
+    -- Revisar nombres de modelos o partes, ignorando los que sean puramente numéricos/precios
     for _, current in ipairs(nodes) do
         local okModel, nameVal = pcall(function()
             if current:IsA("Model") or current:IsA("BasePart") then
@@ -202,7 +229,7 @@ local function isBuyPrompt(prompt)
 end
 
 -- =========================================
--- ESCANEO (CORREGIDO Y BLINDADO)
+-- ESCANEO
 -- =========================================
 
 local function scanPrompts()
@@ -508,7 +535,7 @@ local function tryBuy(entry)
 
     local confirmed, reason = false, "Error al disparar prompt"
     if firedOk then
-                        confirmed, reason = verifyPurchase(
+        confirmed, reason = verifyPurchase(
             prompt,
             initialParent,
             initialCurrency,
@@ -649,20 +676,21 @@ listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 end)
 
 -- =========================================
--- AGRUPACION Y CONTADORES
+-- AGRUPACION Y CONTADORES UNIFICADOS
 -- =========================================
 
 local function buildGroups()
     local groups = {}
     for _, entry in ipairs(promptEntries) do
-        local group = groups[entry.key]
+        local key = entry.key
+        local group = groups[key]
         if not group then
             group = {
-                key = entry.key,
+                key = key,
                 name = entry.name,
                 count = 0,
             }
-            groups[entry.key] = group
+            groups[key] = group
         end
         group.count = group.count + 1
     end
@@ -733,8 +761,9 @@ local function refreshList()
                 and Color3.fromRGB(35, 110, 70)
                 or Color3.fromRGB(32, 32, 40)
             button.BorderSizePixel = 0
+            -- Formato unificado exacto solicitado: nombre -conteo (ej: nobini pizzanini -4)
             button.Text = string.format(
-                " %s %s (%d)",
+                " %s %s -%d",
                 selected and "[X]" or "[ ]",
                 entry.name,
                 entry.count
@@ -998,7 +1027,7 @@ task.spawn(function()
 
             for _, entry in ipairs(queue) do
                 if not CFG.autoBuy or not scannerAlive or not gui.Parent then
-                                                                    break
+                    break
                 end
 
                 if CFG.selected[entry.key] == true then
@@ -1028,7 +1057,7 @@ task.spawn(function()
     end
 end)
 
--- Loop Anti-Ragdoll Definitivo (Con reactivación de W, A, S, D y movimiento continuo)
+-- Loop Anti-Ragdoll Definitivo
 task.spawn(function()
     while scannerAlive and gui.Parent do
         task.wait(0.05)
