@@ -1,4 +1,4 @@
--- Steal a Brainrot | ULTIMATE CPU & LAG KILLER + ANTI-ZOOM + FPS COUNTER
+-- Steal a Brainrot | ULTIMATE CPU, LAG & TARGETED SOUND KILLER (V2)
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
@@ -10,24 +10,46 @@ local CoreGui = game:GetService("CoreGui")
 local Terrain = Workspace:FindFirstChildOfClass("Terrain")
 local LocalPlayer = Players.LocalPlayer
 
--- 0. BLOQUEO ABSOLUTO DE ZOOMS DINÁMICOS Y EFECTOS DE IMPACTO EN CÁMARA
+-- 0. EVITAR CONGELAMIENTO DE CÁMARA Y BOMBA DE BAILE
 task.spawn(function()
     RunService.RenderStepped:Connect(function()
         pcall(function()
             local cam = Workspace.CurrentCamera
             if cam then
-                -- Forzar FOV estático para evitar cualquier zoom dinámico por abrir interfaces o golpes
                 cam.FieldOfView = 70
-                -- Anular sacudidas de cámara (CameraShakes) forzando el tipo de cámara estándar
                 if cam.CameraType ~= Enum.CameraType.Custom and cam.CameraType ~= Enum.CameraType.Follow then
                     cam.CameraType = Enum.CameraType.Custom
+                end
+            end
+            
+            local char = LocalPlayer.Character
+            if char then
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    if humanoid:GetState() == Enum.HumanoidStateType.PlatformStanding or humanoid:GetState() == Enum.HumanoidStateType.FallingDown then
+                        humanoid.PlatformStand = false
+                    end
                 end
             end
         end)
     end)
 end)
 
--- 1. Desbloquear FPS y forzar renderizado mínimo del motor
+-- 1. BLOQUEO DE MICRO-LAGS POR NUEVOS JUGADORES
+Players.PlayerAdded:Connect(function(player)
+    task.spawn(function()
+        pcall(function()
+            player.CharacterAdded:Connect(function(char)
+                local humanoid = char:WaitForChild("Humanoid", 3)
+                if humanoid then
+                    pcall(function() humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None end)
+                end
+            end)
+        end)
+    end)
+end)
+
+-- 2. Desbloquear FPS y forzar renderizado mínimo del motor
 pcall(function()
     if setfpscap then setfpscap(999) end
     settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
@@ -38,12 +60,11 @@ end)
 pcall(function()
     if setfflag then
         setfflag("DFFlagDebugRenderForceTechnologyVoxel", "True")
-        setfflag("FFlagDebugDisableOTAMaterialTexture", "True")
         setfflag("DFIntTaskSchedulerTargetFps", "999")
     end
 end)
 
--- 2. Contador de FPS en tiempo real
+-- 3. Contador de FPS en tiempo real
 local FpsGui = Instance.new("ScreenGui")
 FpsGui.Name = "SAB_FpsCounter"
 FpsGui.IgnoreGuiInset = true
@@ -91,16 +112,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- 3. Ahorro de CPU al minimizar la ventana
-UserInputService.WindowFocusReleased:Connect(function()
-    pcall(function() RunService:Set3dRenderingEnabled(false) end)
-end)
-
-UserInputService.WindowFocused:Connect(function()
-    pcall(function() RunService:Set3dRenderingEnabled(true) end)
-end)
-
--- 4. Clases a DESTRUIR (Partículas, efectos de golpe, brillos, luces y física pesada)
+-- 4. Clases a DESTRUIR por completo (Partículas, rastros, manos flotantes, etc.)
 local DestroyClasses = {
     ["ParticleEmitter"] = true, ["Trail"] = true, ["Beam"] = true,
     ["Fire"] = true, ["Smoke"] = true, ["Sparkles"] = true,
@@ -114,34 +126,38 @@ local DestroyClasses = {
     ["SunRaysEffect"] = true, ["DepthOfFieldEffect"] = true, ["Animation"] = true
 }
 
--- Palabras clave para eliminar textos flotantes de dinero, daños y elementos de bases ajenas
-local BlockedKeywords = {
-    "cash", "money", "coin", "cha-ching", "register", "buy", "purchase",
-    "damage", "hit", "popup", "floating", "text", "label", "ui",
-    "music", "bgm", "theme", "song", "ambient", "wind", "rain",
-    "click", "hover", "button", "error", "fail", "notification",
-    "footstep", "step", "walk", "jump", "land", "punch", "slap",
-    "event", "nyan", "cat", "taco", "raining", "crab", "rave",
-    "meteor", "comet", "starfall", "solar", "flare", "galactic",
-    "blood", "moon", "glitch", "bomb", "bombardiro", "raid",
-    "firework", "ufo", "alien", "zombie", "explosion", "boom", "laser"
-}
-
+-- Filtro estricto de audio: elimina clics, menús y sonidos de dinero/monedas, pero PERMITE compras de brainrots y gears
 local function ShouldMuteSound(soundObj)
-    if soundObj:IsDescendantOf(SoundService) or (LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui") and soundObj:IsDescendantOf(LocalPlayer.PlayerGui)) then
-        return true
-    end
-    if soundObj.Looped then return true end
-
     local name = soundObj.Name:lower()
     local parentName = soundObj.Parent and soundObj.Parent.Name:lower() or ""
-    for _, kw in ipairs(BlockedKeywords) do
-        if name:find(kw) or parentName:find(kw) then return true end
+    
+    -- EXCEPCIONES: Permitir de forma absoluta compras y equipamiento (gears)
+    if name:find("buy") or name:find("purchase") or name:find("gear") or name:find("equip") or name:find("tool") or
+       parentName:find("buy") or parentName:find("purchase") or parentName:find("gear") or parentName:find("equip") or parentName:find("tool") then
+        return false -- NO silenciar
     end
+
+    -- SILENCIAR: UI, clics de botones, dinero, monedas, música y efectos molestos
+    local MuteKeywords = {
+        "click", "hover", "button", "ui", "menu", "press",
+        "cash", "money", "coin", "cha-ching", "register",
+        "music", "bgm", "theme", "song", "ambient", "wind", "rain",
+        "nyan", "cat", "taco", "raining", "crab", "rave", "event",
+        "meteor", "comet", "starfall", "solar", "flare", "galactic",
+        "blood", "moon", "glitch", "bomb", "bombardiro", "raid",
+        "firework", "ufo", "alien", "zombie", "explosion", "boom", "laser",
+        "error", "fail", "notification", "footstep", "step", "walk", "jump", "land", "punch", "slap"
+    }
+
+    for _, kw in ipairs(MuteKeywords) do
+        if name:find(kw) or parentName:find(kw) then
+            return true -- SÍ silenciar
+        end
+    end
+
     return false
 end
 
--- Decoración y elementos de bases a eliminar
 local DecorKeywords = {"tree", "bush", "grass", "flower", "rock", "stone", "cloud", "star", "lamp", "light", "fence", "decor", "prop", "plant", "foliage", "leaves"}
 local TrackedBillboards = {}
 
@@ -149,12 +165,20 @@ local function NukeAll(obj)
     if not obj or not obj.Parent then return end
     if obj == FpsGui or obj:IsDescendantOf(FpsGui) then return end
 
-    -- Si es texto flotante de dinero o daño en pantalla, destruirlo al instante
+    local name = obj.Name:lower()
+    for _, kw in ipairs({"hand", "hands", "glove", "gloves", "bomba", "dance", "effect", "impact"}) do
+        if name:find(kw) and (obj:IsA("BasePart") or obj:IsA("Model") or obj:IsA("MeshPart") or obj:IsA("Decal") or obj:IsA("Texture") or obj:IsA("Folder")) then
+            if not obj:IsDescendantOf(LocalPlayer.Character) then
+                pcall(function() obj:Destroy() end)
+                return
+            end
+        end
+    end
+
     if obj:IsA("TextLabel") or obj:IsA("BillboardGui") or obj:IsA("SurfaceGui") then
-        local name = obj.Name:lower()
         local textVal = (obj:IsA("TextLabel") and obj.Text:lower() or "")
-        for _, kw in ipairs(BlockedKeywords) do
-            if name:find(kw) or textVal:find(kw) or textVal:find("$") or textVal:find("🪙") or textVal:find("💵") then
+        for _, kw in ipairs({"damage", "hit", "popup", "floating", "text", "label"}) do
+            if name:find(kw) or textVal:find("$") or textVal:find("🪙") or textVal:find("💵") then
                 pcall(function() obj:Destroy() end)
                 return
             end
@@ -169,14 +193,16 @@ local function NukeAll(obj)
     if obj:IsA("Animator") or obj:IsA("AnimationController") then
         pcall(function()
             if obj:IsA("Animator") then
-                for _, track in ipairs(obj:GetPlayingAnimationTracks()) do track:Stop(0) end
+                for _, track in ipairs(obj:GetPlayingAnimationTracks()) do
+                    track:Stop(0)
+                end
             end
             obj:Destroy()
         end)
         return
     end
 
-    if obj:IsA("LocalScript") and obj.Name == "Animate" then
+    if obj:IsA("LocalScript") and (obj.Name == "Animate" or obj.Name:lower():find("dance") or obj.Name:lower():find("hand")) then
         pcall(function() obj.Disabled = true obj:Destroy() end)
         return
     end
@@ -187,7 +213,7 @@ local function NukeAll(obj)
     end
 
     if obj:IsA("BillboardGui") then
-        pcall(function() obj.MaxDistance = 60 end) -- Reducir distancia drásticamente para que no carguen carteles lejanos
+        pcall(function() obj.MaxDistance = 60 end)
         table.insert(TrackedBillboards, obj)
         return
     end
@@ -206,7 +232,6 @@ local function NukeAll(obj)
             obj.Reflectance = 0
             obj.CastShadow = false
             obj.EnableFluidForces = false
-            -- Desactivar canCollide en piezas decorativas lejanas para liberar CPU en físicas
             if not obj.Anchored and not obj:IsDescendantOf(LocalPlayer.Character or workspace) then
                 obj.CustomPhysicalProperties = PhysicalProperties.new(0.01, 0.01, 0, 0, 0)
             end
@@ -230,14 +255,11 @@ local function NukeAll(obj)
             if ShouldMuteSound(obj) then
                 obj.Volume = 0
                 obj:Stop()
-            else
-                obj.Volume = 1
             end
         end)
     end
 end
 
--- Optimizar jugadores lejanos y sus Brainrots (Congelar animaciones y lógica de CPU lejana)
 local function OptimizePlayer(player)
     if player == LocalPlayer then return end
     local function onChar(char)
@@ -245,22 +267,8 @@ local function OptimizePlayer(player)
         task.defer(function()
             for _, item in ipairs(char:GetDescendants()) do NukeAll(item) end
         end)
-        -- Si un jugador u objeto de su base se aleja, desactivamos scripts y animaciones para ahorrar CPU
-        task.spawn(function()
-            while char and char.Parent do
-                task.wait(1)
-                local root = char:FindFirstChild("HumanoidRootPart")
-                local localRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                if root and localRoot then
-                    local dist = (root.Position - localRoot.Position).Magnitude
-                    local isFar = dist > 80 -- Si están a más de 80 studs, congelamos su render de CPU secundario
-                    for _, part in ipairs(char:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.LocalTransparencyModifier = isFar and 0.8 or 0
-                        end
-                    end
-                end
-            end
+        char.DescendantAdded:Connect(function(desc)
+            task.defer(function() NukeAll(desc) end)
         end)
     end
     if player.Character then onChar(player.Character) end
@@ -270,7 +278,7 @@ end
 for _, p in ipairs(Players:GetPlayers()) do OptimizePlayer(p) end
 Players.PlayerAdded:Connect(OptimizePlayer)
 
--- Barrido inicial en todo el mapa
+-- Barrido inicial
 for _, v in ipairs(Workspace:GetDescendants()) do NukeAll(v) end
 for _, v in ipairs(Lighting:GetDescendants()) do NukeAll(v) end
 for _, v in ipairs(MaterialService:GetDescendants()) do NukeAll(v) end
@@ -303,12 +311,10 @@ local function EnforceBasicLighting()
 end
 EnforceBasicLighting()
 
--- Vigilancia en tiempo real para destruir nuevos elementos de dinero o partículas de golpes
 Workspace.DescendantAdded:Connect(function(desc) task.defer(function() NukeAll(desc) end) end)
 Lighting.DescendantAdded:Connect(function(desc) task.defer(function() NukeAll(desc) end) end)
 SoundService.DescendantAdded:Connect(function(desc) task.defer(function() NukeAll(desc) end) end)
 
--- Gestión dinámica de distancia para billboards y rendimiento de cámara
 task.spawn(function()
     while task.wait(0.35) do
         EnforceBasicLighting()
@@ -337,11 +343,11 @@ task.spawn(function()
     end
 end)
 
--- Limpieza agresiva de memoria RAM
+-- Limpieza agresiva de RAM
 task.spawn(function()
     while task.wait(10) do
         collectgarbage("collect")
     end
 end)
 
-print("[SAB CPU & LAG KILLER] Rendimiento extremo activado.")
+print("[SAB FINAL SOUND TUNED] Sonidos de dinero y clics eliminados. Compras y gears intactos.")
