@@ -1,11 +1,10 @@
 -- ==========================================
--- CREACIÓN DE LA INTERFAZ GRÁFICA (UI)
+-- TRADES SAB HUB - DEFINITIVO Y LIMPIO
 -- ==========================================
 local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
--- Evitar duplicados si se ejecuta varias veces
 if CoreGui:FindFirstChild("TradeSABHubGUI") then
     CoreGui.TradeSABHubGUI:Destroy()
 end
@@ -13,14 +12,13 @@ end
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "TradeSABHubGUI"
 ScreenGui.ResetOnSpawn = false
-pcall(function()
+local success = pcall(function()
     ScreenGui.Parent = CoreGui
 end)
-if not ScreenGui.Parent then
+if not success then
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 end
 
--- Botón Flotante para Minimizar / Abrir
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Name = "ToggleButton"
 ToggleButton.Size = UDim2.new(0, 55, 0, 55)
@@ -36,11 +34,10 @@ local ToggleCorner = Instance.new("UICorner")
 ToggleCorner.CornerRadius = UDim.new(0, 14)
 ToggleCorner.Parent = ToggleButton
 
--- Ventana Principal (Ajustada para los 7 botones)
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 320, 0, 390)
-MainFrame.Position = UDim2.new(0.5, -160, 0.5, -195)
+MainFrame.Size = UDim2.new(0, 320, 0, 420)
+MainFrame.Position = UDim2.new(0.5, -160, 0.5, -210)
 MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 MainFrame.BorderSizePixel = 0
 MainFrame.Visible = true
@@ -50,7 +47,6 @@ local MainCorner = Instance.new("UICorner")
 MainCorner.CornerRadius = UDim.new(0, 16)
 MainCorner.Parent = MainFrame
 
--- Título del Hub
 local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Size = UDim2.new(1, 0, 0, 50)
 TitleLabel.BackgroundTransparency = 1
@@ -60,13 +56,12 @@ TitleLabel.TextSize = 20
 TitleLabel.Font = Enum.Font.GothamBold
 TitleLabel.Parent = MainFrame
 
--- Contenedor Desplazable para los Botones (CanvasSize actualizado para los 7 botones)
 local Container = Instance.new("ScrollingFrame")
 Container.Size = UDim2.new(1, -20, 1, -65)
 Container.Position = UDim2.new(0, 10, 0, 55)
 Container.BackgroundTransparency = 1
 Container.BorderSizePixel = 0
-Container.CanvasSize = UDim2.new(0, 0, 0, 470)
+Container.CanvasSize = UDim2.new(0, 0, 0, 590)
 Container.ScrollBarThickness = 4
 Container.Parent = MainFrame
 
@@ -76,8 +71,7 @@ UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 UIListLayout.Padding = UDim.new(0, 12)
 UIListLayout.Parent = Container
 
--- Función para generar cada botón grande con su loadstring
-local function createScriptButton(name, url, order)
+local function addBtn(name, url, order)
     local btn = Instance.new("TextButton")
     btn.Name = name .. "Btn"
     btn.Size = UDim2.new(1, -10, 0, 52)
@@ -94,24 +88,22 @@ local function createScriptButton(name, url, order)
     corner.Parent = btn
 
     btn.MouseButton1Click:Connect(function()
-        pcall(function()
-            loadstring(game:HttpGet(url))()
-        end)
+        loadstring(game:HttpGet(url))()
     end)
 end
 
--- ==========================================
--- REGISTRO DE TODOS LOS BOTONES Y SUS SCRIPTS
--- ==========================================
-createScriptButton("AI Riddle Code", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/airiddlecode.lua", 1)
-createScriptButton("Auto Code SAB", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/autocodesab.lua", 2)
-createScriptButton("Open Old Machines", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/openoldmachinessab.lua", 3)
-createScriptButton("Trait Farmer Op", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/traitfarmerop.lua", 4)
-createScriptButton("Open All Machines", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/openallmachinessab.lua", 5)
-createScriptButton("Log SAB", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/logsab.lua", 6)
-createScriptButton("Teleport SAB XYZ", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/teleportsabxyz.lua", 7)
+local base = "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/"
 
--- Lógica para abrir/cerrar con el botón flotante
+addBtn("AI Riddle Code", base .. "airiddlecode.lua", 1)
+addBtn("Auto Code SAB", base .. "autocodesab.lua", 2)
+addBtn("Open Old Machines", base .. "openoldmachinessab.lua", 3)
+addBtn("Trait Farmer Op", base .. "traitfarmerop.lua", 4)
+addBtn("Open All Machines", base .. "openallmachinessab.lua", 5)
+addBtn("Log SAB", base .. "logsab.lua", 6)
+addBtn("Teleport SAB XYZ", base .. "teleportsabxyz.lua", 7)
+addBtn("Auto Accept Trade", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/main/autoaccept.lua", 8)
+addBtn("FPS Booster God-Mode", base .. "fpsbooster.lua", 9)
+
 local isOpen = true
 ToggleButton.MouseButton1Click:Connect(function()
     isOpen = not isOpen
