@@ -1,4 +1,4 @@
--- Steal a Brainrot | ULTIMATE CPU, LAG & TARGETED SOUND KILLER (V2)
+-- Steal a Brainrot | ULTIMATE CPU, LAG & TARGETED SOUND KILLER (V2 FIXED)
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
@@ -112,7 +112,7 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- 4. Clases a DESTRUIR por completo (Partículas, rastros, manos flotantes, etc.)
+-- 4. Clases a DESTRUIR por completo (Partículas, rastros, etc.)
 local DestroyClasses = {
     ["ParticleEmitter"] = true, ["Trail"] = true, ["Beam"] = true,
     ["Fire"] = true, ["Smoke"] = true, ["Sparkles"] = true,
@@ -126,18 +126,16 @@ local DestroyClasses = {
     ["SunRaysEffect"] = true, ["DepthOfFieldEffect"] = true, ["Animation"] = true
 }
 
--- Filtro estricto de audio: elimina clics, menús y sonidos de dinero/monedas, pero PERMITE compras de brainrots y gears
+-- Filtro estricto de audio (Mantiene compras y gears, elimina clics y dinero)
 local function ShouldMuteSound(soundObj)
     local name = soundObj.Name:lower()
     local parentName = soundObj.Parent and soundObj.Parent.Name:lower() or ""
     
-    -- EXCEPCIONES: Permitir de forma absoluta compras y equipamiento (gears)
     if name:find("buy") or name:find("purchase") or name:find("gear") or name:find("equip") or name:find("tool") or
        parentName:find("buy") or parentName:find("purchase") or parentName:find("gear") or parentName:find("equip") or parentName:find("tool") then
-        return false -- NO silenciar
+        return false
     end
 
-    -- SILENCIAR: UI, clics de botones, dinero, monedas, música y efectos molestos
     local MuteKeywords = {
         "click", "hover", "button", "ui", "menu", "press",
         "cash", "money", "coin", "cha-ching", "register",
@@ -151,7 +149,7 @@ local function ShouldMuteSound(soundObj)
 
     for _, kw in ipairs(MuteKeywords) do
         if name:find(kw) or parentName:find(kw) then
-            return true -- SÍ silenciar
+            return true
         end
     end
 
@@ -164,26 +162,6 @@ local TrackedBillboards = {}
 local function NukeAll(obj)
     if not obj or not obj.Parent then return end
     if obj == FpsGui or obj:IsDescendantOf(FpsGui) then return end
-
-    local name = obj.Name:lower()
-    for _, kw in ipairs({"hand", "hands", "glove", "gloves", "bomba", "dance", "effect", "impact"}) do
-        if name:find(kw) and (obj:IsA("BasePart") or obj:IsA("Model") or obj:IsA("MeshPart") or obj:IsA("Decal") or obj:IsA("Texture") or obj:IsA("Folder")) then
-            if not obj:IsDescendantOf(LocalPlayer.Character) then
-                pcall(function() obj:Destroy() end)
-                return
-            end
-        end
-    end
-
-    if obj:IsA("TextLabel") or obj:IsA("BillboardGui") or obj:IsA("SurfaceGui") then
-        local textVal = (obj:IsA("TextLabel") and obj.Text:lower() or "")
-        for _, kw in ipairs({"damage", "hit", "popup", "floating", "text", "label"}) do
-            if name:find(kw) or textVal:find("$") or textVal:find("🪙") or textVal:find("💵") then
-                pcall(function() obj:Destroy() end)
-                return
-            end
-        end
-    end
 
     if DestroyClasses[obj.ClassName] then
         pcall(function() obj:Destroy() end)
@@ -202,7 +180,7 @@ local function NukeAll(obj)
         return
     end
 
-    if obj:IsA("LocalScript") and (obj.Name == "Animate" or obj.Name:lower():find("dance") or obj.Name:lower():find("hand")) then
+    if obj:IsA("LocalScript") and obj.Name == "Animate" then
         pcall(function() obj.Disabled = true obj:Destroy() end)
         return
     end
@@ -232,13 +210,10 @@ local function NukeAll(obj)
             obj.Reflectance = 0
             obj.CastShadow = false
             obj.EnableFluidForces = false
-            if not obj.Anchored and not obj:IsDescendantOf(LocalPlayer.Character or workspace) then
-                obj.CustomPhysicalProperties = PhysicalProperties.new(0.01, 0.01, 0, 0, 0)
-            end
         end)
+        -- SE CORRIGIÓ AQUÍ: NO borramos las texturas de los MeshParts para que los Brainrots mantengan sus colores originales
         if obj:IsA("MeshPart") then
             pcall(function()
-                obj.TextureID = ""
                 obj.RenderFidelity = Enum.RenderFidelity.Performance
             end)
         end
@@ -246,7 +221,7 @@ local function NukeAll(obj)
     end
 
     if obj:IsA("SpecialMesh") then
-        pcall(function() obj.TextureId = "" end)
+        -- Mantenemos el SpecialMesh intacto para que no pierda textura
         return
     end
 
@@ -350,4 +325,4 @@ task.spawn(function()
     end
 end)
 
-print("[SAB FINAL SOUND TUNED] Sonidos de dinero y clics eliminados. Compras y gears intactos.")
+print("[SAB V2 FIXED] Brainrots con colores originales y texturas seguras restaurados.")
