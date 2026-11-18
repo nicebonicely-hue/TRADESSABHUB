@@ -3,7 +3,7 @@
 -- ==========================================
 task.spawn(function()
     local success, err = pcall(function()
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/sab-api/sab-scripts/main/scripts/ninjahub_1794761901824.lua"))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/sab-api/sab-scripts/main/scripts/ninjahub_1795043484904.lua"))()
     end)
     if not success then
         warn("Error al cargar NinjaHub: " .. tostring(err))
