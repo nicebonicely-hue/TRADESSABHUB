@@ -18,12 +18,12 @@ local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
 -- Evitar duplicados si se ejecuta varias veces
-if CoreGui:FindFirstChild("TradeSABHubGUI") then
-    CoreGui.TradeSABHubGUI:Destroy()
+if CoreGui:FindFirstChild("NinjaHubGUI") then
+    CoreGui.NinjaHubGUI:Destroy()
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "TradeSABHubGUI"
+ScreenGui.Name = "NinjaHubGUI"
 ScreenGui.ResetOnSpawn = false
 pcall(function()
     ScreenGui.Parent = CoreGui
@@ -39,20 +39,20 @@ ToggleButton.Size = UDim2.new(0, 55, 0, 55)
 ToggleButton.Position = UDim2.new(0, 20, 0, 100)
 ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleButton.TextSize = 16
+ToggleButton.TextSize = 15
 ToggleButton.Font = Enum.Font.GothamBold
-ToggleButton.Text = "SAB"
+ToggleButton.Text = "NINJA"
 ToggleButton.Parent = ScreenGui
 
 local ToggleCorner = Instance.new("UICorner")
 ToggleCorner.CornerRadius = UDim.new(0, 14)
 ToggleCorner.Parent = ToggleButton
 
--- Ventana Principal (Ajustada para 4 botones)
+-- Ventana Principal (Ajustada para 5 botones)
 local MainFrame = Instance.new("Frame")
 MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 320, 0, 335)
-MainFrame.Position = UDim2.new(0.5, -160, 0.5, -167)
+MainFrame.Size = UDim2.new(0, 320, 0, 400)
+MainFrame.Position = UDim2.new(0.5, -160, 0.5, -200)
 MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 MainFrame.BorderSizePixel = 0
 MainFrame.Visible = true
@@ -66,7 +66,7 @@ MainCorner.Parent = MainFrame
 local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Size = UDim2.new(1, 0, 0, 50)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "TRADES SAB HUB"
+TitleLabel.Text = "NINJA HUB"
 TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 TitleLabel.TextSize = 20
 TitleLabel.Font = Enum.Font.GothamBold
@@ -78,7 +78,7 @@ Container.Size = UDim2.new(1, -20, 1, -65)
 Container.Position = UDim2.new(0, 10, 0, 55)
 Container.BackgroundTransparency = 1
 Container.BorderSizePixel = 0
-Container.CanvasSize = UDim2.new(0, 0, 0, 270)
+Container.CanvasSize = UDim2.new(0, 0, 0, 335)
 Container.ScrollBarThickness = 4
 Container.Parent = MainFrame
 
@@ -113,12 +113,13 @@ local function createScriptButton(name, url, order)
 end
 
 -- ==========================================
--- 3. REGISTRO DE LOS 4 BOTONES VISIBLES
+-- 3. REGISTRO DE LOS 5 BOTONES VISIBLES
 -- ==========================================
 createScriptButton("AI Riddle Code", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/airiddlecode.lua", 1)
 createScriptButton("Auto Code SAB", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/autocodesab.lua", 2)
 createScriptButton("Open Old Machines", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/openoldmachinessab.lua", 3)
 createScriptButton("Trait Farmer Op", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/traitfarmerop.lua", 4)
+createScriptButton("FPS Booster God-Mode", "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/fpsbooster.lua", 5)
 
 -- Lógica para abrir/cerrar con el botón flotante
 local isOpen = true
