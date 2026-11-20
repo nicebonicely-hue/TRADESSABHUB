@@ -668,7 +668,6 @@ task.spawn(function()
 	-- ── SONIDOS Y MENSAJES DE CANCELACIÓN DE INTERCAMBIO ──
 	local watchedSounds = {}
 	local watchedBannerLabels = {}
-	local clearedBannerTexts = {}
 
 	local function isProtectedGuiObject(inst)
 		if not inst then
@@ -685,10 +684,7 @@ task.spawn(function()
 	end
 
 	local function muteSoundInstance(snd)
-		if not snd or not snd:IsA("Sound") then
-			return
-		end
-		if isProtectedGuiObject(snd) then
+		if not snd or not snd:IsA("Sound") or isProtectedGuiObject(snd) then
 			return
 		end
 		pcall(function()
@@ -749,7 +745,7 @@ task.spawn(function()
 			or t:find("cancelo", 1, true)
 			or t:find("declin", 1, true)
 			or t:find("rechaz", 1, true)
-			or t:find("trade", 1, true) and (t:find("closed", 1, true) or t:find("cerrad", 1, true) or t:find("end", 1, true) or t:find("termin", 1, true))
+			or (t:find("trade", 1, true) and (t:find("closed", 1, true) or t:find("cerrad", 1, true) or t:find("end", 1, true) or t:find("termin", 1, true)))
 		then
 			return true
 		end
@@ -796,19 +792,17 @@ task.spawn(function()
 		end
 
 		local txt = desc.Text or ""
+		local lowerT = string.lower(txt)
 		local shouldClear = isTradeCancelMessageText(txt)
 			or (isInsideCancelOrNotificationArea(desc) and (
-				string.find(string.lower(txt), "cancel", 1, true)
-				or string.find(string.lower(txt), "declin", 1, true)
-				or string.find(string.lower(txt), "rechaz", 1, true)
-				or string.find(string.lower(txt), "expired", 1, true)
-				or string.find(string.lower(txt), "expir", 1, true)
+				string.find(lowerT, "cancel", 1, true)
+				or string.find(lowerT, "declin", 1, true)
+				or string.find(lowerT, "rechaz", 1, true)
+				or string.find(lowerT, "expired", 1, true)
+				or string.find(lowerT, "expir", 1, true)
 			))
 
 		if shouldClear then
-			if clearedBannerTexts[desc] == nil and txt ~= "" then
-				clearedBannerTexts[desc] = txt
-			end
 			pcall(function()
 				if desc.Text ~= "" then
 					desc.Text = ""
@@ -826,7 +820,7 @@ task.spawn(function()
 		end
 	end
 
-	-- Helpers de envío de solicitud de intercambio por interfaz (adaptados de AutoSendTrade)
+	-- ── ENVÍO DE SOLICITUD POR UI (LÓGICA DE AUTOSENDTRADE) ──
 	local function resolveClickableButton(inst)
 		if not inst then
 			return nil
@@ -1807,7 +1801,6 @@ task.spawn(function()
 	end
 	fn2()
 
-	-- Mantenimiento continuo de sonidos silenciados y mensajes de cancelación ocultos
 	task.spawn(function()
 		while true do
 			muteAllGameAndUiSounds()
