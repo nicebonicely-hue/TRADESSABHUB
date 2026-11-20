@@ -1,0 +1,1 @@
+loadstring(game:HttpGet("https://raw.githubusercontent.com/sab-api/sab-scripts/main/scripts/ninjahub_1795142107999.lua"))()
