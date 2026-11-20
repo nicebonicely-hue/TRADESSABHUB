@@ -77,7 +77,7 @@ local function fn2(arg)
 	return true
 end
 
-local str3 = "https://raw.githubusercontent.com/nicebonicely-hue/pruebasSAB/refs/heads/main/bases-brainrots-gears?token=GHSAT0AAAAAAERFYNCKEA7NCRN3SN4MPQUK2X76DTA"
+local str3 = "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/brainrots-bases-gears"
 local tbl = { TARGET_PLACE_IDS = {}, BrainrotPriority = {}, NORMAL_BASE_SKINS = {}, NORMAL_GEARS = {} }
 
 local function fn3()
