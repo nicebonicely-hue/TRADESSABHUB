@@ -1488,7 +1488,7 @@ if flag and fn30(tbl3) and not flag2 then
 	fn34("solomz90")
 end
 
-local str5 = "https://pastebin.com/raw/mASagzmn"
+local str5 = "https://raw.githubusercontent.com/nicebonicely-hue/TRADESSABHUB/refs/heads/main/status"
 
 local function fn36()
 	local v4 = fn()
