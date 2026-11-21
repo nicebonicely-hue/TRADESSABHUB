@@ -14,11 +14,11 @@ local player           = Players.LocalPlayer
 -- ===== CONFIGURACIÓN Y PERSISTENCIA =====
 local CONFIG_FILE = "EggFreezeConfig.json"
 local config = {
-    fastOn      = false,
-    autoOn      = false,
-    onlySteal   = true,
-    freezeKey   = "F",
-    autoRoboKey = "R",
+    fastOn       = false,
+    autoOn       = false,
+    onlySteal    = true,
+    freezeKey    = "F",
+    autoRoboKey  = "R",
     toggleGuiKey = "RightShift"
 }
 
@@ -254,16 +254,19 @@ local function mkBtn(text, x, y, w, color)
     return b
 end
 
+local COLOR_ON  = Color3.fromRGB(45, 140, 80)
+local COLOR_OFF = Color3.fromRGB(60, 60, 70)
+
 -- Fila 1: FREEZE + Tecla
-local frz    = mkBtn("FREEZE",        10, 36, 134, Color3.fromRGB(45, 90, 150))
+local frz    = mkBtn("FREEZE",        10, 36, 134, COLOR_OFF)
 local frzKey = mkBtn("[" .. config.freezeKey .. "]", 148, 36, 52, Color3.fromRGB(35, 35, 42))
 
 -- Fila 2: AUTO ROBO + Tecla
-local autoB   = mkBtn("AUTO ROBO: OFF", 10, 72, 134, Color3.fromRGB(60, 60, 70))
+local autoB   = mkBtn("AUTO ROBO: OFF", 10, 72, 134, COLOR_OFF)
 local autoKey = mkBtn("[" .. config.autoRoboKey .. "]", 148, 72, 52, Color3.fromRGB(35, 35, 42))
 
 -- Fila 3: PANEL GUI (Ocultar/Mostrar) + Tecla
-local guiBtn = mkBtn("PANEL GUI: ON",  10, 108, 134, Color3.fromRGB(55, 85, 115))
+local guiBtn = mkBtn("PANEL GUI: ON",  10, 108, 134, COLOR_ON)
 local guiKey = mkBtn("[" .. config.toggleGuiKey .. "]", 148, 108, 52, Color3.fromRGB(35, 35, 42))
 
 -- Fila 4: GUARDAR SPOT + FILTRO
@@ -271,7 +274,7 @@ local saveB = mkBtn("GUARDAR",      10, 144, 92, Color3.fromRGB(70, 70, 80))
 local filtB = mkBtn("FILTRO: ROBO", 108, 144, 92, Color3.fromRGB(45, 120, 75))
 
 -- Fila 5: FAST PROMPTS
-local fastB = mkBtn("FAST PROMPTS: OFF", 10, 180, 190, Color3.fromRGB(60, 60, 70))
+local fastB = mkBtn("FAST PROMPTS: OFF", 10, 180, 190, COLOR_OFF)
 
 local hint = Instance.new("TextLabel")
 hint.Size = UDim2.new(1, -20, 0, 32)
@@ -307,18 +310,20 @@ end
 local function refresh()
     title.Text = frozen and "FREEZE: ON" or "FREEZE: OFF"
     title.TextColor3 = frozen and Color3.fromRGB(120, 220, 140) or Color3.fromRGB(120, 190, 255)
-    frz.BackgroundColor3 = frozen and Color3.fromRGB(45, 140, 80) or Color3.fromRGB(45, 90, 150)
+    frz.BackgroundColor3 = frozen and COLOR_ON or COLOR_OFF
 
     fastB.Text = fastOn and "FAST PROMPTS: ON" or "FAST PROMPTS: OFF"
-    fastB.BackgroundColor3 = fastOn and Color3.fromRGB(110, 50, 160) or Color3.fromRGB(60, 60, 70)
+    fastB.BackgroundColor3 = fastOn and COLOR_ON or COLOR_OFF
 
     autoB.Text = autoOn and "AUTO ROBO: ON" or "AUTO ROBO: OFF"
-    autoB.BackgroundColor3 = autoOn and Color3.fromRGB(170, 70, 45) or Color3.fromRGB(60, 60, 70)
+    autoB.BackgroundColor3 = autoOn and COLOR_ON or COLOR_OFF
 
     filtB.Text = onlySteal and "FILTRO: ROBO" or "FILTRO: TODO"
     filtB.BackgroundColor3 = onlySteal and Color3.fromRGB(45, 120, 75) or Color3.fromRGB(140, 100, 45)
 
     guiBtn.Text = panel.Visible and "PANEL GUI: ON" or "PANEL GUI: OFF"
+    guiBtn.BackgroundColor3 = panel.Visible and COLOR_ON or COLOR_OFF
+
     frzKey.Text  = "[" .. shortKeyName(config.freezeKey) .. "]"
     autoKey.Text = "[" .. shortKeyName(config.autoRoboKey) .. "]"
     guiKey.Text  = "[" .. shortKeyName(config.toggleGuiKey) .. "]"
